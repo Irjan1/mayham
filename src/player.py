@@ -10,8 +10,9 @@ Player1 and Player2 inherit from Player and contain their own controls and the c
 import math
 import pygame
 
-from config import GRAVITY, STARTING_FUEL, THRUST, WIDTH, HEIGHT, STARTING_HEALTH, FUEL_COOLDOWN
+from config import GRAVITY, STARTING_FUEL, THRUST, WIDTH, HEIGHT, STARTING_HEALTH, FUEL_COOLDOWN, PLAYER_RADIUS
 from src.objects import Ship, Obstacle, Bullet
+from src.geometry import circle_intersects_rect
 
 
 class Player(Ship):
@@ -28,7 +29,7 @@ class Player(Ship):
         #player constants
         self.rotation_speed = 3
         self.thrust = THRUST
-        self.radius = 18
+        self.radius = PLAYER_RADIUS
         self.gravity = GRAVITY
 
         # Needs holder fuel og health for enhver spiller
@@ -62,13 +63,7 @@ class Player(Ship):
         
         Contains the collision logic for circle-rectange collision
         """
-        pointx = max(obstacle.rect.left, min(self.x, obstacle.rect.right))
-        pointy = max(obstacle.rect.top, min(self.y, obstacle.rect.bottom))
-
-        dx = self.x - pointx
-        dy = self.y - pointy
-
-        return (dx * dx + dy * dy) < (self.radius * self.radius)
+        return circle_intersects_rect((self.x, self.y), self.radius, obstacle.rect)
 
     def inside_screen(self) -> None:
         """Keeps the player inside the screen

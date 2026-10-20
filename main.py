@@ -7,13 +7,19 @@ The file has the main loop of the game.
 Authors: Irjan Evertsen and Emil Olsen-Kristiansen
 """
 
+import argparse
+import random
+
 import pygame
 
-from config import FPS, HEIGHT, OBSTACLE_COLOR, TITLE, WIDTH
-from src.arena import ArenaLayout, create_fixed_arena
+from config import FPS, FUEL_COLOR, FUEL_SIZE, HEIGHT, OBSTACLE_COLOR, TITLE, WIDTH
+from src.arena import (
+    ArenaLayout, choose_fuel_position, create_fixed_arena, generate_arena,
+    get_fuel_positions,
+)
 from src.game_events import GameEvents
-from src.gui import NeedsDisplay, ObjectFactory, Scoreboard, WinnerAnnouncement
-from src.objects import Obstacle
+from src.gui import NeedsDisplay, Scoreboard, WinnerAnnouncement
+from src.objects import Fuel, Obstacle
 from src.player import Player1, Player2
 
 
@@ -23,11 +29,12 @@ class Game:
     updates screen and renders the screen.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, seed: int | None = None, fixed_arena: bool = False) -> None:
         """Initializes pygame, creates game object."""
         pygame.init()
         self.game_events = GameEvents()
-        self.object_factory = ObjectFactory()
+        self.fixed_arena = fixed_arena
+        self.next_arena_seed = seed if seed is not None else random.SystemRandom().randrange(2 ** 32)
 
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption(TITLE)
@@ -46,11 +53,25 @@ class Game:
     def start_new_round(self) -> None:
         """Reset winner state and create fresh game objects for a new round."""
         self.game_events.reset_game_winner()
+        self.arena_seed = self.next_arena_seed
+        self.next_arena_seed += 1
+        arena = create_fixed_arena() if self.fixed_arena else generate_arena(self.arena_seed)
+        label = " (fixed arena)" if self.fixed_arena else ""
+        print(f"Arena seed: {self.arena_seed}{label}")
+        # This stream is separate from arena generation and global random state.
+        self.fuel_rng = random.Random(self.arena_seed)
+        self.game_objects(arena)
         self.time_from_fuel_spawn = pygame.time.get_ticks()
-        self.game_objects(create_fixed_arena())
 
     def game_objects(self, arena: ArenaLayout) -> None:
         """Create players, obstacles and sprite groups from the arena layout."""
+        if hasattr(self, "players"):
+            for group in (self.players, self.obstacles, self.bullets, self.fuel_cans):
+                for sprite in group:
+                    sprite.kill()
+
+        self.arena = arena
+        self.fuel_positions = get_fuel_positions(arena)
         self.player1 = Player1(*arena.player1_spawn)
         self.player2 = Player2(*arena.player2_spawn)
 
@@ -118,7 +139,14 @@ class Game:
         current_time = pygame.time.get_ticks()
 
         if len(self.fuel_cans) == 0 and current_time - self.time_from_fuel_spawn > self.fuel_spawn_time:
-            fuel = self.object_factory.create_fuelcan()
+            position = choose_fuel_position(
+                self.fuel_positions,
+                [(player.x, player.y) for player in self.players],
+                self.fuel_rng,
+            )
+            if position is None:
+                return
+            fuel = Fuel(*position, FUEL_SIZE, FUEL_COLOR)
             self.fuel_cans.add(fuel)
             self.all_sprites.add(fuel)
             self.time_from_fuel_spawn = current_time
@@ -154,5 +182,9 @@ class Game:
 
 
 if __name__ == "__main__":
-    game = Game()
+    parser = argparse.ArgumentParser(description="Mayham: two-player rocket combat")
+    parser.add_argument("--seed", type=int, help="First arena seed; later rounds increment it")
+    parser.add_argument("--fixed-arena", action="store_true", help="Use the original room")
+    args = parser.parse_args()
+    game = Game(seed=args.seed, fixed_arena=args.fixed_arena)
     game.run()

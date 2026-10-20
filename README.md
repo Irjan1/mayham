@@ -9,6 +9,7 @@ Players battle in a small arena using physics-based movement, projectiles, and l
 ## Gameplay
 
 - Two-player local multiplayer
+- A new procedural arena each round
 - Rocket movement with gravity and thrust
 - Circular player hitboxes and obstacle collision detection
 - Projectiles, health, and damage
@@ -41,6 +42,25 @@ Install Pygame:
 Run the game:
 
 `python main.py`
+
+## Arena seeds and previews
+
+The terminal prints the arena seed at the start of each round. Reproduce a room
+with `python main.py --seed 42`. Later rounds use 43, 44, and so on. Fuel uses a
+separate random generator, so pickups do not change the arena sequence.
+
+Use `python main.py --fixed-arena` to play the original room for debugging.
+
+Preview arenas without opening a game window:
+
+```sh
+python -m tools.preview_arenas --seed 42 --output arena42.png
+python -m tools.preview_arenas --start 0 --count 12 --output arena_grid.png
+```
+
+Previews show obstacle rectangles, player spawn circles and each arena's seed.
+Fuel positions use the ship-reachable grid region, check the full pickup rectangle,
+and leave space around current player positions.
 
 ## Implementation
 
