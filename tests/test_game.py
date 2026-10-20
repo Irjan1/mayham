@@ -239,12 +239,14 @@ class GameSetupTests(unittest.TestCase):
             for player, obstacle in zip(game.players, game.obstacles):
                 player.x = obstacle.rect.centerx
                 player.y = obstacle.rect.top - player.radius - 1
-                old_position = (player.x, player.y)
                 player.vx, player.vy = 0, 2
                 player.update_rect()
                 player.update(keys, game.obstacles, game.players, game.bullets,
                               game.fuel_cans, game.game_events)
-                self.assertEqual((player.x, player.y), old_position)
+                self.assertFalse(player.collision(obstacle))
+                self.assertAlmostEqual(player.y, obstacle.rect.top - player.radius, places=5)
+                self.assertEqual(player.vx, 0)
+                self.assertAlmostEqual(player.vy, -(2 + player.gravity))
                 self.assertEqual(player.needs.health, STARTING_HEALTH - WALL_DAMAGE)
 
 

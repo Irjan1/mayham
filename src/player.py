@@ -15,7 +15,7 @@ from config import (
     STARTING_FUEL, STARTING_HEALTH, THRUST, WIDTH,
 )
 from src.objects import Ship, Obstacle, Bullet
-from src.geometry import circle_intersects_rect
+from src.geometry import circle_intersects_rect, circle_rect_contact
 from src.upgrades import effective_stats
 
 
@@ -77,28 +77,66 @@ class Player(Ship):
         """
         return circle_intersects_rect((self.x, self.y), self.radius, obstacle.rect)
 
+    def reflect_velocity(self, normal, bounce_strength=1.0) -> None:
+        """Reflect inward velocity, leaving motion along the surface unchanged."""
+        nx, ny = normal
+        normal_speed = self.vx * nx + self.vy * ny
+        if normal_speed < 0:
+            # A full bounce uses v - 2 * dot(v, normal) * normal.
+            # Smaller strengths reduce only the outgoing normal component.
+            self.vx -= (1 + bounce_strength) * normal_speed * nx
+            self.vy -= (1 + bounce_strength) * normal_speed * ny
+
     def inside_screen(self) -> None:
-        """Keeps the player inside the screen
-        
-        Uses the circular hitbox of the player
-        """
+        """Keep the circular hitbox inside, retaining the existing 1/4 bounce."""
         if self.x - self.radius < 0:
             self.x = self.radius
-            self.vx = -self.vx / 4
+            self.reflect_velocity((1, 0), 0.25)
 
         if self.x + self.radius > WIDTH:
             self.x = WIDTH - self.radius
-            self.vx = -self.vx / 4
+            self.reflect_velocity((-1, 0), 0.25)
 
         if self.y - self.radius < 0:
             self.y = self.radius
-            self.vy = -self.vy / 4
+            self.reflect_velocity((0, 1), 0.25)
 
         if self.y + self.radius > HEIGHT:
             self.y = HEIGHT - self.radius
-            self.vy = -self.vy / 4
+            self.reflect_velocity((0, -1), 0.25)
 
         self.update_rect()
+
+    def resolve_obstacle_collisions(self, obstacles) -> bool:
+        """Separate the circle from solid rectangles and reflect inward motion."""
+        collided = False
+        touched = []
+        # One push can touch another part of an L or U. Recheck nearby parts
+        # a few times, stopping as soon as no overlap remains.
+        for pass_index in range(4 + len(obstacles)):
+            corrected = False
+            for obstacle in obstacles:
+                contact = circle_rect_contact((self.x, self.y), self.radius, obstacle.rect)
+                if contact is None:
+                    continue
+                if obstacle.rect not in touched:
+                    touched.append(obstacle.rect)
+                if pass_index >= 4:
+                    # Deep overlap at a join can alternate between internal faces.
+                    # Escape the combined bounds of touched parts in that rare case.
+                    bounds = touched[0].unionall(touched[1:])
+                    contact = circle_rect_contact((self.x, self.y), self.radius, bounds)
+                normal, depth = contact
+                nx, ny = normal
+                # A tiny gap prevents round-off from reporting the same contact.
+                self.x += nx * (depth + 1e-6)
+                self.y += ny * (depth + 1e-6)
+                self.reflect_velocity(normal)
+                collided = corrected = True
+            if not corrected:
+                break
+        self.update_rect()
+        return collided
 
     def shoot(self, bullets) -> None:
         """Shoots a bullet if the cooldown check passes"""
@@ -154,10 +192,8 @@ class Player(Ship):
         self.image = pygame.transform.rotate(self.original_image, self.angle)
         self.update_rect()
 
-        for obstacle in obstacles:
-            if self.collision(obstacle):
-                self.undo_movement(old_x, old_y)
-                self.take_wall_or_obstacle_damage(players, game_events)
+        if self.resolve_obstacle_collisions(obstacles):
+            self.take_wall_or_obstacle_damage(players, game_events)
 
         sprite_collision = pygame.sprite.spritecollide(self, players, False, pygame.sprite.collide_circle)
 
@@ -165,6 +201,9 @@ class Player(Ship):
         for player in sprite_collision:
             if player != self:
                 self.undo_movement(old_x, old_y)
+                self.inside_screen()
+                if self.resolve_obstacle_collisions(obstacles):
+                    self.take_wall_or_obstacle_damage(players, game_events)
                 break
 
     def take_wall_or_obstacle_damage(self, players, game_events) -> None:
