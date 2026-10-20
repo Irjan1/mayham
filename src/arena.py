@@ -4,7 +4,7 @@ Arena geometry, separate from the sprites used to display it.
 Authors: Irjan Evertsen
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import random
 
 import pygame
@@ -23,6 +23,9 @@ MIN_SPAWN_DISTANCE = WIDTH // 3
 MIN_NAVIGABLE_FRACTION = 0.5
 MAX_LAYOUT_ATTEMPTS = 20
 MAX_OBSTACLE_ATTEMPTS = 100
+ARENA_STYLES = ("open", "corridors", "scattered")
+STYLE_CLEARANCE = {"fixed": OBSTACLE_CLEARANCE, "open": 100, "corridors": 60, "scattered": 60}
+HAZARD_CLEARANCE = 40
 
 
 @dataclass
@@ -32,6 +35,12 @@ class ArenaLayout:
     obstacles: list[pygame.Rect]
     player1_spawn: tuple[int, int]
     player2_spawn: tuple[int, int]
+    style: str = "fixed"
+    # These are the same rectangles as obstacles, grouped in connected order.
+    # The flat list keeps collision code independent of the structure shapes.
+    structures: list[list[pygame.Rect]] = field(default_factory=list)
+    hazards: list[pygame.Rect] = field(default_factory=list)
+    destructible_obstacles: list[pygame.Rect] = field(default_factory=list)
 
 
 def create_fixed_arena() -> ArenaLayout:
@@ -61,7 +70,7 @@ def rectangle_fits(rect: pygame.Rect, obstacles: list[pygame.Rect]) -> bool:
     )
 
 
-def _obstacle_fits(rect, obstacles, spawns) -> bool:
+def _obstacle_fits(rect, obstacles, spawns, clearance=OBSTACLE_CLEARANCE) -> bool:
     """Keep passages between obstacles, walls and the reserved spawn areas."""
     interior = pygame.Rect(
         WALL_CLEARANCE, WALL_CLEARANCE,
@@ -70,7 +79,7 @@ def _obstacle_fits(rect, obstacles, spawns) -> bool:
     if rect.width <= 0 or rect.height <= 0 or not interior.contains(rect):
         return False
 
-    spaced_rect = rect.inflate(2 * OBSTACLE_CLEARANCE, 2 * OBSTACLE_CLEARANCE)
+    spaced_rect = rect.inflate(2 * clearance, 2 * clearance)
     if any(spaced_rect.colliderect(other) for other in obstacles):
         return False
 
@@ -80,8 +89,27 @@ def _obstacle_fits(rect, obstacles, spawns) -> bool:
     )
 
 
-def get_reachable_cells(arena: ArenaLayout) -> set[tuple[int, int]]:
-    """Return (column, row) grid cells reachable from player one's spawn."""
+def _structure_fits(rects, obstacles, spawns, clearance) -> bool:
+    """Allow touching parts inside a structure, but keep separate structures apart."""
+    if not rects:
+        return False
+    for index, rect in enumerate(rects):
+        if not _obstacle_fits(rect, obstacles, spawns, clearance):
+            return False
+        if any(rect.colliderect(other) for other in rects[:index]):
+            return False
+        # Parts are listed in connected order. One pixel of expansion detects
+        # touching edges without treating a one-pixel gap as connected.
+        if index and not any(rect.inflate(2, 2).colliderect(other) for other in rects[:index]):
+            return False
+    return True
+
+
+def get_reachable_cells(arena: ArenaLayout, obstacles=None) -> set[tuple[int, int]]:
+    """Return safe grid cells; optional live obstacles account for destroyed blocks."""
+    if obstacles is None:
+        obstacles = arena.obstacles
+    blocked = obstacles + arena.hazards
     open_cells = set()
     for column in range(WIDTH // GRID_SIZE):
         for row in range(HEIGHT // GRID_SIZE):
@@ -92,7 +120,7 @@ def get_reachable_cells(arena: ArenaLayout) -> set[tuple[int, int]]:
             # This conservatively guarantees safe movement inside each cell
             # and across shared edges, even past very thin obstacles.
             footprint = cell.inflate(2 * PLAYER_RADIUS, 2 * PLAYER_RADIUS)
-            if rectangle_fits(footprint, arena.obstacles):
+            if rectangle_fits(footprint, blocked):
                 open_cells.add((column, row))
 
     start = (
@@ -135,9 +163,22 @@ def validate_arena(arena: ArenaLayout) -> bool:
     if dx * dx + dy * dy < MIN_SPAWN_DISTANCE ** 2:
         return False
 
-    for index, obstacle in enumerate(arena.obstacles):
-        if not _obstacle_fits(obstacle, arena.obstacles[:index], spawns):
+    if arena.style not in STYLE_CLEARANCE:
+        return False
+    structures = arena.structures or [[rect] for rect in arena.obstacles]
+    if [rect for structure in structures for rect in structure] != arena.obstacles:
+        return False
+    placed = []
+    for structure in structures:
+        if not _structure_fits(structure, placed, spawns, STYLE_CLEARANCE[arena.style]):
             return False
+        placed.extend(structure)
+    if any(rect not in arena.obstacles for rect in arena.destructible_obstacles):
+        return False
+    for hazard in arena.hazards:
+        if not _obstacle_fits(hazard, placed, spawns, HAZARD_CLEARANCE):
+            return False
+        placed.append(hazard)
 
     reachable = get_reachable_cells(arena)
     second_spawn_cell = (
@@ -152,42 +193,117 @@ def validate_arena(arena: ArenaLayout) -> bool:
     )
 
 
-def generate_arena(seed: int) -> ArenaLayout:
-    """Generate a repeatable layout, or return the validated original room."""
+def _make_structure(rng, style) -> list[pygame.Rect]:
+    """Build a block, L or U using touching, non-overlapping rectangles."""
+    if style == "corridors":
+        height = rng.randint(280, 380)
+        width = rng.randint(100, 140)
+        thickness = 40
+        shape = rng.choice(("block", "L"))
+    else:
+        width = rng.randint(120, 180)
+        height = rng.randint(100, 170)
+        thickness = 32
+        shapes = ("block", "block", "L") if style == "open" else ("block", "L", "U")
+        shape = rng.choice(shapes)
+    if shape == "block":
+        if style == "corridors":
+            return [pygame.Rect(0, 0, thickness, height)]
+        if style == "scattered":
+            width, height = rng.randint(60, 100), rng.randint(50, 100)
+        return [pygame.Rect(0, 0, width, height)]
+
+    parts = [
+        pygame.Rect(0, 0, thickness, height),
+        pygame.Rect(thickness, height - thickness, width - thickness, thickness),
+    ]
+    if shape == "U":
+        # Shorten the bottom so the right-hand side only touches it.
+        parts[1].width -= thickness
+        parts.append(pygame.Rect(width - thickness, 0, thickness, height))
+    return parts
+
+
+def generate_arena(seed: int, style: str | None = None) -> ArenaLayout:
+    """Generate a repeatable room style, or return the validated original room."""
     rng = random.Random(seed)
+    # Always consume the style draw, so explicitly choosing the reported style
+    # reproduces the automatic layout for the same seed.
+    random_style = rng.choice(ARENA_STYLES)
+    style = random_style if style is None else style
+    if style not in ARENA_STYLES:
+        raise ValueError(f"Unknown arena style: {style}")
     spawn_margin = PLAYER_RADIUS + SPAWN_CLEARANCE
 
     for _ in range(MAX_LAYOUT_ATTEMPTS):
-        # Opposite thirds keep players separated without fixing their positions.
-        player1_spawn = (
-            rng.randint(spawn_margin, WIDTH // 3),
-            rng.randint(spawn_margin, HEIGHT - spawn_margin),
+        spawns = (
+            (rng.randint(spawn_margin, WIDTH // 3),
+             rng.randint(spawn_margin, HEIGHT - spawn_margin)),
+            (rng.randint(WIDTH * 2 // 3, WIDTH - spawn_margin),
+             rng.randint(spawn_margin, HEIGHT - spawn_margin)),
         )
-        player2_spawn = (
-            rng.randint(WIDTH * 2 // 3, WIDTH - spawn_margin),
-            rng.randint(spawn_margin, HEIGHT - spawn_margin),
-        )
-        spawns = (player1_spawn, player2_spawn)
-        obstacle_count = rng.randint(2, 6)
+        if style == "open":
+            structure_count = rng.randint(2, 3)
+        elif style == "corridors":
+            structure_count = 3
+        else:
+            structure_count = rng.randint(5, 7)
+        vertical_lanes = rng.choice((True, False))
+        structures = []
         obstacles = []
 
         for _ in range(MAX_OBSTACLE_ATTEMPTS):
-            width = rng.randint(80, 180)
-            height = rng.randint(60, 160)
-            rect = pygame.Rect(
-                rng.randint(WALL_CLEARANCE, WIDTH - WALL_CLEARANCE - width),
-                rng.randint(WALL_CLEARANCE, HEIGHT - WALL_CLEARANCE - height),
-                width, height,
-            )
-            if _obstacle_fits(rect, obstacles, spawns):
-                obstacles.append(rect)
-                if len(obstacles) == obstacle_count:
+            parts = _make_structure(rng, style)
+            if style == "corridors" and not vertical_lanes:
+                parts = [pygame.Rect(rect.y, rect.x, rect.height, rect.width) for rect in parts]
+            bounds = parts[0].unionall(parts[1:])
+            if style == "corridors":
+                # Alternating long walls leave openings at opposite ends.
+                index = len(structures)
+                if vertical_lanes:
+                    x = (index + 1) * WIDTH // 4 - bounds.width // 2 + rng.randint(-16, 16)
+                    y = WALL_CLEARANCE if index % 2 == 0 else HEIGHT - WALL_CLEARANCE - bounds.height
+                else:
+                    x = WALL_CLEARANCE if index % 2 == 0 else WIDTH - WALL_CLEARANCE - bounds.width
+                    y = (index + 1) * HEIGHT // 4 - bounds.height // 2 + rng.randint(-8, 8)
+            else:
+                x = rng.randint(WALL_CLEARANCE, WIDTH - WALL_CLEARANCE - bounds.width)
+                y = rng.randint(WALL_CLEARANCE, HEIGHT - WALL_CLEARANCE - bounds.height)
+            parts = [rect.move(x, y) for rect in parts]
+            if _structure_fits(parts, obstacles, spawns, STYLE_CLEARANCE[style]):
+                structures.append(parts)
+                obstacles.extend(parts)
+                if len(structures) == structure_count:
                     break
-
-        if len(obstacles) != obstacle_count:
+        if len(structures) != structure_count:
             continue
 
-        arena = ArenaLayout(obstacles, player1_spawn, player2_spawn)
+        hazards = []
+        if rng.random() < 0.35:
+            hazard_count = rng.randint(1, 2)
+            for _ in range(40):
+                width = rng.randint(80, 160)
+                hazard = pygame.Rect(
+                    rng.randint(WALL_CLEARANCE, WIDTH - WALL_CLEARANCE - width),
+                    rng.randint(WALL_CLEARANCE, HEIGHT - WALL_CLEARANCE - 32), width, 32,
+                )
+                if _obstacle_fits(hazard, obstacles + hazards, spawns, HAZARD_CLEARANCE):
+                    hazards.append(hazard)
+                    if len(hazards) == hazard_count:
+                        break
+        destructible = []
+        for structure in structures:
+            if rng.random() < 0.35:
+                destructible.extend(structure)
+        arena = ArenaLayout(
+            obstacles=obstacles,
+            player1_spawn=spawns[0],
+            player2_spawn=spawns[1],
+            style=style,
+            structures=structures,
+            hazards=hazards,
+            destructible_obstacles=destructible,
+        )
         if validate_arena(arena):
             return arena
 
@@ -197,18 +313,21 @@ def generate_arena(seed: int) -> ArenaLayout:
     return fallback
 
 
-def get_fuel_positions(arena: ArenaLayout) -> list[tuple[int, int]]:
+def get_fuel_positions(arena: ArenaLayout, obstacles=None) -> list[tuple[int, int]]:
     """Return fuel top-left positions whose centers are reachable by a ship."""
+    if obstacles is None:
+        obstacles = arena.obstacles
+    blocked = obstacles + arena.hazards
     positions = []
     # Sorting makes fuel choices reproducible, independent of set iteration order.
-    for column, row in sorted(get_reachable_cells(arena)):
+    for column, row in sorted(get_reachable_cells(arena, obstacles)):
         rect = pygame.Rect((0, 0), FUEL_SIZE)
         rect.center = (
             column * GRID_SIZE + GRID_SIZE // 2,
             row * GRID_SIZE + GRID_SIZE // 2,
         )
         # Fuel is wider than a grid cell, so checking only its center is not enough.
-        if rectangle_fits(rect, arena.obstacles):
+        if rectangle_fits(rect, blocked):
             positions.append(rect.topleft)
     return positions
 

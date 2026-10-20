@@ -14,12 +14,13 @@ import pygame
 
 from config import FPS, FUEL_COLOR, FUEL_SIZE, HEIGHT, OBSTACLE_COLOR, TITLE, WIDTH
 from src.arena import (
-    ArenaLayout, choose_fuel_position, create_fixed_arena, generate_arena,
+    ARENA_STYLES, ArenaLayout, choose_fuel_position, create_fixed_arena, generate_arena,
     get_fuel_positions,
 )
 from src.game_events import GameEvents
 from src.gui import NeedsDisplay, Scoreboard, WinnerAnnouncement
-from src.objects import Fuel, Obstacle
+from src.geometry import circle_intersects_rect
+from src.objects import Fuel, Hazard, Obstacle
 from src.player import Player1, Player2
 
 
@@ -29,11 +30,13 @@ class Game:
     updates screen and renders the screen.
     """
 
-    def __init__(self, seed: int | None = None, fixed_arena: bool = False) -> None:
+    def __init__(self, seed: int | None = None, fixed_arena: bool = False,
+                 style: str | None = None) -> None:
         """Initializes pygame, creates game object."""
         pygame.init()
         self.game_events = GameEvents()
         self.fixed_arena = fixed_arena
+        self.arena_style = style
         self.next_arena_seed = seed if seed is not None else random.SystemRandom().randrange(2 ** 32)
 
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -55,9 +58,8 @@ class Game:
         self.game_events.reset_game_winner()
         self.arena_seed = self.next_arena_seed
         self.next_arena_seed += 1
-        arena = create_fixed_arena() if self.fixed_arena else generate_arena(self.arena_seed)
-        label = " (fixed arena)" if self.fixed_arena else ""
-        print(f"Arena seed: {self.arena_seed}{label}")
+        arena = create_fixed_arena() if self.fixed_arena else generate_arena(self.arena_seed, self.arena_style)
+        print(f"Arena seed: {self.arena_seed} ({arena.style})")
         # This stream is separate from arena generation and global random state.
         self.fuel_rng = random.Random(self.arena_seed)
         self.game_objects(arena)
@@ -66,7 +68,7 @@ class Game:
     def game_objects(self, arena: ArenaLayout) -> None:
         """Create players, obstacles and sprite groups from the arena layout."""
         if hasattr(self, "players"):
-            for group in (self.players, self.obstacles, self.bullets, self.fuel_cans):
+            for group in (self.players, self.obstacles, self.hazards, self.bullets, self.fuel_cans):
                 for sprite in group:
                     sprite.kill()
 
@@ -83,14 +85,20 @@ class Game:
 
         self.obstacles = pygame.sprite.Group()
         for rect in arena.obstacles:
-            obstacle = Obstacle(rect.x, rect.y, rect.size, OBSTACLE_COLOR)
+            obstacle = Obstacle(
+                rect.x, rect.y, rect.size, OBSTACLE_COLOR,
+                destructible=rect in arena.destructible_obstacles,
+            )
             self.obstacles.add(obstacle)
 
+        self.hazards = pygame.sprite.Group()
+        for rect in arena.hazards:
+            self.hazards.add(Hazard(rect))
         self.bullets = pygame.sprite.Group()
         self.fuel_cans = pygame.sprite.Group()
 
         self.all_sprites = pygame.sprite.Group()
-        self.all_sprites.add(self.obstacles, self.players)
+        self.all_sprites.add(self.obstacles, self.hazards, self.players)
 
     def run(self) -> None:
         """Running of the main game loop."""
@@ -123,7 +131,23 @@ class Game:
                 self.fuel_cans,
                 self.game_events,
             )
-            self.bullets.update(self.players, self.obstacles, self.game_events)
+            if self.game_events.get_game_winner() is None:
+                for player in self.players:
+                    if any(circle_intersects_rect((player.x, player.y), player.radius, hazard.rect)
+                           for hazard in self.hazards):
+                        opponent = player.get_opponent(self.players)
+                        self.game_events.hazard_hit_player(player, opponent)
+                        break
+
+            if self.game_events.get_game_winner() is None:
+                obstacle_count = len(self.obstacles)
+                self.bullets.update(self.players, self.obstacles, self.game_events)
+                if len(self.obstacles) != obstacle_count:
+                    # Removing blocks can open new safe routes. Keep the original
+                    # seeded layout intact, and prepare fuel from live rectangles.
+                    self.fuel_positions = get_fuel_positions(
+                        self.arena, [obstacle.rect for obstacle in self.obstacles],
+                    )
 
         self.spawn_fuel()
         self.all_sprites.add(self.bullets)
@@ -185,6 +209,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Mayham: two-player rocket combat")
     parser.add_argument("--seed", type=int, help="First arena seed; later rounds increment it")
     parser.add_argument("--fixed-arena", action="store_true", help="Use the original room")
+    parser.add_argument("--style", choices=ARENA_STYLES, help="Choose a room style")
     args = parser.parse_args()
-    game = Game(seed=args.seed, fixed_arena=args.fixed_arena)
+    game = Game(seed=args.seed, fixed_arena=args.fixed_arena, style=args.style)
     game.run()

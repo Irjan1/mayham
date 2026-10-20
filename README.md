@@ -10,6 +10,8 @@ Players battle in a small arena using physics-based movement, projectiles, and l
 
 - Two-player local multiplayer
 - A new procedural arena each round
+- Open, corridor and scattered room styles with L-shaped and U-shaped cover
+- Red spike zones and tan destructible blocks in some rooms
 - Rocket movement with gravity and thrust
 - Circular player hitboxes and obstacle collision detection
 - Projectiles, health, and damage
@@ -51,14 +53,27 @@ separate random generator, so pickups do not change the arena sequence.
 
 Use `python main.py --fixed-arena` to play the original room for debugging.
 
+Room styles are chosen from the seed by default. To play one style across rounds,
+use `python main.py --seed 42 --style corridors` (`open` and `scattered` also work).
+The terminal prints both the seed and style. The same seed and style reproduce a
+layout with the current generator version; changing generation rules may change it.
+
+White obstacles are permanent. Tan blocks break after three bullets, with cracks
+showing damage. Each rectangular part of a grouped shape can be destroyed separately.
+Red spike zones kill on contact and award the opponent the round, like a lethal crash.
+Safe routes and fuel placement avoid these zones. Breaking blocks opens new fuel
+locations without changing the original seeded layout or fuel quantities and timing.
+
 Preview arenas without opening a game window:
 
 ```sh
 python -m tools.preview_arenas --seed 42 --output arena42.png
 python -m tools.preview_arenas --start 0 --count 12 --output arena_grid.png
+python -m tools.preview_arenas --start 0 --count 6 --style corridors --output corridors.png
 ```
 
-Previews show obstacle rectangles, player spawn circles and each arena's seed.
+Previews show room style, obstacle rectangles, spikes, breakable blocks, player
+spawn circles and each arena's seed. A color legend appears below the grid.
 Fuel positions use the ship-reachable grid region, check the full pickup rectangle,
 and leave space around current player positions.
 

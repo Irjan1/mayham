@@ -8,7 +8,7 @@ import pygame
 
 from config import HEIGHT, PLAYER_RADIUS, WIDTH
 from src.arena import (
-    GRID_SIZE, MIN_NAVIGABLE_FRACTION, MIN_SPAWN_DISTANCE,
+    ARENA_STYLES, STYLE_CLEARANCE, GRID_SIZE, MIN_NAVIGABLE_FRACTION, MIN_SPAWN_DISTANCE,
     OBSTACLE_CLEARANCE, SPAWN_CLEARANCE, WALL_CLEARANCE,
     ArenaLayout, create_fixed_arena, generate_arena, get_reachable_cells,
     rectangle_fits, validate_arena,
@@ -61,7 +61,7 @@ class GeneratedArenaTests(unittest.TestCase):
         self.assertEqual(random.getstate(), state)
 
     def test_failed_placement_attempts_return_valid_fixed_arena(self):
-        # One candidate per layout cannot fill a room requiring 2-6 obstacles.
+        # One candidate cannot fill any style, which needs at least two structures.
         with patch('src.arena.MAX_OBSTACLE_ATTEMPTS', 1):
             arena = generate_arena(42)
 
@@ -92,8 +92,9 @@ class GeneratedArenaTests(unittest.TestCase):
                 if arena == fallback:
                     fallback_count += 1
                 else:
-                    self.assertGreaterEqual(len(arena.obstacles), 2)
-                    self.assertLessEqual(len(arena.obstacles), 6)
+                    self.assertIn(arena.style, ARENA_STYLES)
+                    self.assertGreaterEqual(len(arena.structures), 2)
+                    self.assertLessEqual(len(arena.structures), 7)
                     self.assertLessEqual(arena.player1_spawn[0], WIDTH // 3)
                     self.assertGreaterEqual(arena.player2_spawn[0], WIDTH * 2 // 3)
 
@@ -103,12 +104,18 @@ class GeneratedArenaTests(unittest.TestCase):
                     self.assertGreaterEqual(rect.top, WALL_CLEARANCE)
                     self.assertGreaterEqual(WIDTH - rect.right, WALL_CLEARANCE)
                     self.assertGreaterEqual(HEIGHT - rect.bottom, WALL_CLEARANCE)
-                    spaced_rect = rect.inflate(
-                        2 * OBSTACLE_CLEARANCE, 2 * OBSTACLE_CLEARANCE,
-                    )
                     for other in arena.obstacles[index + 1:]:
                         self.assertFalse(rect.colliderect(other))
-                        self.assertFalse(spaced_rect.colliderect(other))
+                structures = arena.structures or [[rect] for rect in arena.obstacles]
+                for index, structure in enumerate(structures):
+                    for other_structure in structures[index + 1:]:
+                        for rect in structure:
+                            spaced = rect.inflate(2 * STYLE_CLEARANCE[arena.style],
+                                                  2 * STYLE_CLEARANCE[arena.style])
+                            for other in other_structure:
+                                self.assertFalse(spaced.colliderect(other))
+                for index, hazard in enumerate(arena.hazards):
+                    self.assertTrue(rectangle_fits(hazard, arena.obstacles + arena.hazards[:index]))
 
                 for spawn in (arena.player1_spawn, arena.player2_spawn):
                     x, y = spawn
@@ -118,6 +125,8 @@ class GeneratedArenaTests(unittest.TestCase):
                     self.assertLessEqual(y, HEIGHT - spawn_margin)
                     player = Player1(x, y)
                     self.assertEqual(player.radius, PLAYER_RADIUS)
+                    for hazard in arena.hazards:
+                        self.assertFalse(circle_intersects_rect(spawn, spawn_margin, hazard))
                     for rect in arena.obstacles:
                         obstacle = Obstacle(rect.x, rect.y, rect.size, 'white')
                         self.assertFalse(player.collision(obstacle))
@@ -135,6 +144,85 @@ class GeneratedArenaTests(unittest.TestCase):
         print(f'\nSeed sweep: {fallback_count}/500 fixed-layout fallbacks.')
         # A few exceptional seeds are acceptable; frequent fallback needs tuning.
         self.assertLessEqual(fallback_count, 5)
+
+
+class RichArenaTests(unittest.TestCase):
+    def test_each_style_is_valid_and_repeatable_for_100_seeds(self):
+        for style in ARENA_STYLES:
+            fallback_count = 0
+            for seed in range(100):
+                with self.subTest(style=style, seed=seed):
+                    arena = generate_arena(seed, style)
+                    self.assertEqual(arena, generate_arena(seed, style))
+                    self.assertTrue(validate_arena(arena))
+                    if arena.style == "fixed":
+                        fallback_count += 1
+                    else:
+                        self.assertEqual(arena.style, style)
+                        if style == "open":
+                            self.assertLessEqual(len(arena.structures), 3)
+                        elif style == "corridors":
+                            self.assertEqual(len(arena.structures), 3)
+                            self.assertTrue(all(any(max(rect.size) >= 280 for rect in group)
+                                                for group in arena.structures))
+                        else:
+                            self.assertGreaterEqual(len(arena.structures), 5)
+            print(f"{style}: {fallback_count}/100 fallbacks")
+            self.assertLessEqual(fallback_count, 1)
+
+    def test_styles_have_grouped_shapes_and_optional_environment_features(self):
+        arenas = [generate_arena(seed) for seed in range(40)]
+        self.assertEqual({arena.style for arena in arenas}, set(ARENA_STYLES))
+        self.assertTrue(any(any(len(group) == 2 for group in arena.structures) for arena in arenas))
+        self.assertTrue(any(any(len(group) == 3 for group in arena.structures) for arena in arenas))
+        self.assertTrue(any(arena.hazards for arena in arenas))
+        self.assertTrue(any(not arena.hazards for arena in arenas))
+        self.assertTrue(any(arena.destructible_obstacles for arena in arenas))
+        self.assertTrue(any(not arena.destructible_obstacles for arena in arenas))
+        for seed, arena in enumerate(arenas):
+            self.assertEqual(arena, generate_arena(seed, arena.style))
+            self.assertEqual([rect for group in arena.structures for rect in group], arena.obstacles)
+            self.assertTrue(all(rect in arena.obstacles for rect in arena.destructible_obstacles))
+
+    def test_touching_l_and_u_structures_are_valid(self):
+        left = pygame.Rect(400, 260, 32, 160)
+        bottom = pygame.Rect(432, 388, 128, 32)
+        parts = [left, bottom]
+        arena = ArenaLayout(parts, (270, 180), (810, 540), structures=[parts])
+        self.assertTrue(validate_arena(arena))
+        bottom.width = 96
+        parts.append(pygame.Rect(528, 260, 32, 160))
+        self.assertTrue(validate_arena(arena))
+
+    def test_invalid_group_and_destructible_metadata_is_rejected(self):
+        first = pygame.Rect(350, 260, 32, 160)
+        second = pygame.Rect(700, 260, 32, 160)
+        arena = ArenaLayout([first, second], (270, 180), (900, 540), structures=[[first, second]])
+        self.assertFalse(validate_arena(arena))
+        arena = create_fixed_arena()
+        arena.structures = [[first]]
+        self.assertFalse(validate_arena(arena))
+        arena.structures = []
+        arena.destructible_obstacles = [first]
+        self.assertFalse(validate_arena(arena))
+
+    def test_invalid_hazards_are_rejected(self):
+        for hazard in (pygame.Rect(-1, 200, 80, 32), pygame.Rect(480, 300, 80, 32),
+                       pygame.Rect(250, 170, 80, 32)):
+            with self.subTest(hazard=hazard):
+                arena = create_fixed_arena()
+                arena.hazards = [hazard]
+                self.assertFalse(validate_arena(arena))
+
+    def test_hazards_block_connectivity_and_fuel_candidates(self):
+        arena = ArenaLayout([], (120, 360), (960, 360),
+                            hazards=[pygame.Rect(WIDTH // 2, 0, 20, HEIGHT)])
+        reachable = get_reachable_cells(arena)
+        self.assertNotIn((960 // GRID_SIZE, 360 // GRID_SIZE), reachable)
+
+    def test_unknown_style_is_rejected(self):
+        with self.assertRaises(ValueError):
+            generate_arena(42, "unknown")
 
 
 class ArenaValidationTests(unittest.TestCase):

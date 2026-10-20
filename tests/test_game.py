@@ -50,7 +50,7 @@ class GameSetupTests(unittest.TestCase):
         self.assertEqual([obstacle.rect for obstacle in game.obstacles], game.arena.obstacles)
         self.assertEqual(game.player1.rect.center, game.arena.player1_spawn)
         self.assertEqual(game.player2.rect.center, game.arena.player2_spawn)
-        self.assertEqual(list(game.all_sprites), [*game.obstacles, *game.players])
+        self.assertEqual(list(game.all_sprites), [*game.obstacles, *game.hazards, *game.players])
 
     def test_fixed_arena_debug_option_preserves_original_room(self):
         game = Game(seed=42, fixed_arena=True)
@@ -74,7 +74,7 @@ class GameSetupTests(unittest.TestCase):
         self.assertEqual([obstacle.rect for obstacle in game.obstacles], game.arena.obstacles)
         self.assertEqual(game.player1.rect.center, game.arena.player1_spawn)
         self.assertEqual(game.player2.rect.center, game.arena.player2_spawn)
-        self.assertEqual(list(game.all_sprites), [*game.obstacles, *game.players])
+        self.assertEqual(list(game.all_sprites), [*game.obstacles, *game.hazards, *game.players])
 
     def test_multiple_obstacles_are_created_from_layout(self):
         game = Game(seed=42)
@@ -91,7 +91,7 @@ class GameSetupTests(unittest.TestCase):
                          [(80, 60), (120, 90)])
         self.assertEqual(game.player1.rect.center, arena.player1_spawn)
         self.assertEqual(game.player2.rect.center, arena.player2_spawn)
-        self.assertEqual(list(game.all_sprites), [*game.obstacles, *game.players])
+        self.assertEqual(list(game.all_sprites), [*game.obstacles, *game.hazards, *game.players])
 
     def test_new_round_removes_all_old_sprites(self):
         game = Game(seed=42)
@@ -101,7 +101,7 @@ class GameSetupTests(unittest.TestCase):
         game.bullets.add(bullet)
         game.fuel_cans.add(fuel)
         game.all_sprites.add(fuel)
-        old_sprites = [*game.players, *game.obstacles, bullet, fuel]
+        old_sprites = [*game.players, *game.obstacles, *game.hazards, bullet, fuel]
         old_drawing_group = game.all_sprites
 
         game.start_new_round()

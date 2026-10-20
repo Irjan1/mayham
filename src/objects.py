@@ -15,18 +15,56 @@ Authors: Irjan Evertsen and Emil Olsen-Kristiansen
 
 import pygame
 import math
-from config import WIDTH, HEIGHT, BULLETSPEED
+from config import WIDTH, HEIGHT, BULLETSPEED, DESTRUCTIBLE_COLOR, DESTRUCTIBLE_HITS, HAZARD_COLOR
 
 class Obstacle(pygame.sprite.Sprite):
     """A static rectangular obstacle that ships can collide with."""
 
-    def __init__(self, x: int, y: int, size: tuple[int, int], color: tuple[int, int, int]):
+    def __init__(self, x: int, y: int, size: tuple[int, int], color: tuple[int, int, int],
+                 destructible: bool = False):
         """Crate the obstacle at the given position with given size and color"""
         super().__init__()
 
+        self.destructible = destructible
+        self.hits_remaining = DESTRUCTIBLE_HITS if destructible else 0
         self.image = pygame.Surface(size)
-        self.image.fill(color)
+        self.image.fill(DESTRUCTIBLE_COLOR if destructible else color)
         self.rect = self.image.get_rect(topleft=(x, y))
+
+    def take_bullet_hit(self) -> None:
+        """Three hits break a tan block; white obstacles remain permanent."""
+        if not self.destructible:
+            return
+        self.hits_remaining -= 1
+        if self.hits_remaining <= 0:
+            self.kill()
+            return
+        width, height = self.image.get_size()
+        # Cracks accumulate, making the remaining durability visible.
+        for crack in range(DESTRUCTIBLE_HITS - self.hits_remaining):
+            x = width * (crack + 1) // DESTRUCTIBLE_HITS
+            pygame.draw.line(self.image, "black", (x, 0), (width // 2, height), 3)
+
+
+def draw_hazard(surface: pygame.Surface, rect: pygame.Rect) -> None:
+    """Draw the same red spike warning in gameplay and arena previews."""
+    pygame.draw.rect(surface, (90, 15, 25), rect)
+    for x in range(rect.left, rect.right, 16):
+        pygame.draw.polygon(surface, HAZARD_COLOR, [
+            (x, rect.bottom - 1), (min(x + 8, rect.right - 1), rect.top),
+            (min(x + 16, rect.right - 1), rect.bottom - 1),
+        ])
+    pygame.draw.rect(surface, HAZARD_COLOR, rect, 2)
+
+
+class Hazard(pygame.sprite.Sprite):
+    """A visible rectangular spike zone; contact kills a player."""
+
+    def __init__(self, rect: pygame.Rect):
+        super().__init__()
+        self.rect = rect.copy()
+        self.image = pygame.Surface(rect.size)
+        draw_hazard(self.image, self.image.get_rect())
 
 
 class Bullet(pygame.sprite.Sprite):
@@ -69,6 +107,7 @@ class Bullet(pygame.sprite.Sprite):
         for player in players:
             if player != self.owner and pygame.sprite.collide_circle(self, player):
                 game_events.bullet_hit_player(self, player)  # reduserer needs.health
+                return
 
         ## outside boundaries
         if self.rect.right < 0 or self.rect.left > WIDTH:
@@ -77,7 +116,9 @@ class Bullet(pygame.sprite.Sprite):
         if self.rect.bottom < 0 or self.rect.top > HEIGHT:
             self.kill()
 
-        if pygame.sprite.spritecollideany(self, obstacles):
+        obstacle = pygame.sprite.spritecollideany(self, obstacles)
+        if obstacle is not None:
+            obstacle.take_bullet_hit()
             self.kill()
 
 class Fuel(pygame.sprite.Sprite):

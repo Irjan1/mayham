@@ -25,7 +25,7 @@ class FuelPlacementTests(unittest.TestCase):
                 self.assertTrue(positions)
                 for position in positions:
                     rect = pygame.Rect(position, FUEL_SIZE)
-                    self.assertTrue(rectangle_fits(rect, arena.obstacles))
+                    self.assertTrue(rectangle_fits(rect, arena.obstacles + arena.hazards))
                     self.assertIn((rect.centerx // GRID_SIZE, rect.centery // GRID_SIZE), reachable)
 
     def test_full_rectangle_is_checked_even_if_larger_than_grid_cell(self):
@@ -48,6 +48,19 @@ class FuelPlacementTests(unittest.TestCase):
 
         self.assertTrue(positions)
         self.assertTrue(all(x < WIDTH // 2 for x, y in positions))
+
+    def test_destroyed_obstacles_open_new_safe_fuel_positions(self):
+        wall = pygame.Rect(WIDTH // 2, 0, 20, HEIGHT)
+        hazard = pygame.Rect(750, 300, 100, 32)
+        arena = ArenaLayout([wall], (120, 360), (960, 360), hazards=[hazard],
+                            destructible_obstacles=[wall])
+        before = get_fuel_positions(arena)
+        after = get_fuel_positions(arena, obstacles=[])
+        self.assertTrue(all(x < WIDTH // 2 for x, y in before))
+        self.assertTrue(any(x > WIDTH // 2 for x, y in after))
+        self.assertTrue(all(rectangle_fits(pygame.Rect(position, FUEL_SIZE), [hazard])
+                            for position in after))
+        self.assertEqual(arena.obstacles, [wall])
 
     def test_selection_avoids_current_player_positions(self):
         arena = generate_arena(42)
