@@ -1,4 +1,3 @@
-
 """
 Object file for the game
 

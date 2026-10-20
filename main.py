@@ -9,9 +9,11 @@ Authors: Irjan Evertsen and Emil Olsen-Kristiansen
 
 import pygame
 
-from config import FPS, HEIGHT, TITLE, WIDTH
+from config import FPS, HEIGHT, OBSTACLE_COLOR, TITLE, WIDTH
+from src.arena import ArenaLayout, create_fixed_arena
 from src.game_events import GameEvents
 from src.gui import NeedsDisplay, ObjectFactory, Scoreboard, WinnerAnnouncement
+from src.objects import Obstacle
 from src.player import Player1, Player2
 
 
@@ -40,20 +42,17 @@ class Game:
         self.time_from_fuel_spawn = pygame.time.get_ticks()
 
         self.start_new_round()
-        self.run()
 
     def start_new_round(self) -> None:
         """Reset winner state and create fresh game objects for a new round."""
         self.game_events.reset_game_winner()
         self.time_from_fuel_spawn = pygame.time.get_ticks()
-        self.game_objects()
+        self.game_objects(create_fixed_arena())
 
-    def game_objects(self) -> None:
-        """Creates players, obstacles, fuel, bullets and the sprite groups."""
-        self.obstacle = self.object_factory.create_center_obstacle()
-
-        self.player1 = Player1(WIDTH // 4, HEIGHT // 4)
-        self.player2 = Player2(WIDTH * 3 // 4, HEIGHT * 3 // 4)
+    def game_objects(self, arena: ArenaLayout) -> None:
+        """Create players, obstacles and sprite groups from the arena layout."""
+        self.player1 = Player1(*arena.player1_spawn)
+        self.player2 = Player2(*arena.player2_spawn)
 
         self.needs_display = NeedsDisplay(self.player1, self.player2)
         self.scoreboard = Scoreboard()
@@ -62,13 +61,15 @@ class Game:
         self.players.add(self.player1, self.player2)
 
         self.obstacles = pygame.sprite.Group()
-        self.obstacles.add(self.obstacle)
+        for rect in arena.obstacles:
+            obstacle = Obstacle(rect.x, rect.y, rect.size, OBSTACLE_COLOR)
+            self.obstacles.add(obstacle)
 
         self.bullets = pygame.sprite.Group()
         self.fuel_cans = pygame.sprite.Group()
 
         self.all_sprites = pygame.sprite.Group()
-        self.all_sprites.add(self.obstacle, self.player1, self.player2)
+        self.all_sprites.add(self.obstacles, self.players)
 
     def run(self) -> None:
         """Running of the main game loop."""
@@ -153,4 +154,5 @@ class Game:
 
 
 if __name__ == "__main__":
-    Game()
+    game = Game()
+    game.run()

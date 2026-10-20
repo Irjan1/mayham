@@ -13,22 +13,13 @@ from __future__ import annotations
 import pygame
 import random
 
-from config import HEIGHT, OBSTACLE_COLOR, OBSTACLE_SIZE, WIDTH, FUEL_COLOR, FUEL_SIZE
+from config import HEIGHT, OBSTACLE_SIZE, WIDTH, FUEL_COLOR, FUEL_SIZE
 from src.game_events import GameEvents
-from src.objects import Obstacle, Fuel
+from src.objects import Fuel
 
 class ObjectFactory:
 	"""Factory class for creating objects"""
 
-
-	def create_center_obstacle(self) -> Obstacle:
-		"""Create a static obstacle centered in the game window."""
-		return Obstacle(
-			x=(WIDTH - OBSTACLE_SIZE[0]) // 2,
-			y=(HEIGHT - OBSTACLE_SIZE[1]) // 2,
-			size=OBSTACLE_SIZE,
-			color=OBSTACLE_COLOR,
-		)
 
 	def create_fuelcan(self) -> Fuel:
 		"""Create fuel can in random valid position

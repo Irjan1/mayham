@@ -48,6 +48,14 @@ The game uses object-oriented Python, with shared player behavior, separate game
 
 Collision detection uses circular player hitboxes against rectangular obstacles. Physics, projectile handling, fuel management, and round logic are implemented in separate components.
 
+## Tests
+
+With Pygame installed, run the tests from the project root:
+
+`python -m unittest discover -s tests -v`
+
+Game setup tests use SDLs dummy drivers, so they do not open a game window.
+
 ## Authors
 
 Developed by Irjan Evertsen and Emil Olsen-Kristiansen as a university project for INF-1400 at UiT – The Arctic University of Norway.
