@@ -17,6 +17,7 @@ Players battle in a small arena using physics-based movement, projectiles, and l
 - Projectiles, health, and damage
 - Limited fuel with randomly spawning fuel pickups
 - Round-based gameplay with persistent scores
+- Between-round upgrades for the losing player, lasting for the game session
 
 ## Controls
 
@@ -26,6 +27,7 @@ Players battle in a small arena using physics-based movement, projectiles, and l
 | Rotate right | Right Arrow | D |
 | Thrust | Up Arrow | W |
 | Shoot | Right Shift | Space |
+| Choose upgrade when offered | 1, 2, or 3 | 1, 2, or 3 |
 
 ## Installation
 
@@ -47,13 +49,19 @@ Run the game:
 
 ## Arena seeds and previews
 
-The terminal prints the arena seed at the start of each round. Reproduce a room
-with `python main.py --seed 42`. Later rounds use 43, 44, and so on. Fuel uses a
-separate random generator, so pickups do not change the arena sequence.
+A starting seed, such as `python main.py --seed 42`, reproduces the match's arena
+sequence. Arena seeds still increment each round: 42, 43, 44, and so on. The terminal
+prints both the arena seed and its style. To reproduce one particular room, use
+both values, for example `python main.py --seed 44 --style scattered`.
+
+Styles rotate through a shuffled bag containing one `open`, one `corridors`, and
+one `scattered` room. Each bag uses every style, and its first style differs from
+the previous bag's last style. Separate random generators handle style rotation,
+upgrade offers and fuel, so choosing an upgrade cannot change later arenas.
 
 Use `python main.py --fixed-arena` to play the original room for debugging.
 
-Room styles are chosen from the seed by default. To play one style across rounds,
+To bypass style rotation and play one style across rounds,
 use `python main.py --seed 42 --style corridors` (`open` and `scattered` also work).
 The terminal prints both the seed and style. The same seed and style reproduce a
 layout with the current generator version; changing generation rules may change it.
@@ -76,6 +84,29 @@ Previews show room style, obstacle rectangles, spikes, breakable blocks, player
 spawn circles and each arena's seed. A color legend appears below the grid.
 Fuel positions use the ship-reachable grid region, check the full pickup rectangle,
 and leave space around current player positions.
+
+## Between-round upgrades
+
+After the winner announcement, the losing player chooses an upgrade with 1, 2, or 3.
+Movement, bullets and fuel stop while the screen is open. The selected card briefly
+highlights, then the next round starts. Draws skip selection. Maxed upgrades are not
+offered; fewer remaining upgrades mean fewer cards, and no eligible cards means the
+next round starts immediately after the announcement.
+
+| Upgrade | Level 1 total | Level 2 total |
+|---|---|---|
+| Reinforced Hull | +20% maximum health | +40% maximum health |
+| Rapid Fire | 15% shorter shooting cooldown | 30% shorter shooting cooldown |
+| Enhanced Thrusters | +15% thrust acceleration | +30% thrust acceleration |
+
+Each upgrade stops at level 2. Each player keeps their own levels for the whole game
+session, even after winning later rounds. New rounds start at the upgraded maximum
+health. Gravity, rotation, fuel consumption and bullet damage stay unchanged.
+
+Stats are calculated from the original values each round, so bonuses do not compound.
+Restarting the application or constructing a new `Game` resets upgrade levels.
+Upgrade definitions, eligibility and stat calculations live in `src/upgrades.py`;
+the selection screen only renders cards. No upgrade rarity or pickup system is added.
 
 ## Implementation
 

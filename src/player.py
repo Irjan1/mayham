@@ -10,9 +10,13 @@ Player1 and Player2 inherit from Player and contain their own controls and the c
 import math
 import pygame
 
-from config import GRAVITY, STARTING_FUEL, THRUST, WIDTH, HEIGHT, STARTING_HEALTH, FUEL_COOLDOWN, PLAYER_RADIUS
+from config import (
+    BULLET_COOLDOWN, FUEL_COOLDOWN, GRAVITY, HEIGHT, PLAYER_RADIUS,
+    STARTING_FUEL, STARTING_HEALTH, THRUST, WIDTH,
+)
 from src.objects import Ship, Obstacle, Bullet
 from src.geometry import circle_intersects_rect
+from src.upgrades import effective_stats
 
 
 class Player(Ship):
@@ -40,7 +44,7 @@ class Player(Ship):
         self.fuel_cooldown = FUEL_COOLDOWN
         self.last_fuel = 0
 
-        self.bullet_cooldown = 300 # miliseconds
+        self.bullet_cooldown = BULLET_COOLDOWN
         self.last_shot = 0
         self.wall_damage_cooldown = 500
         self.last_wall_damage = -self.wall_damage_cooldown
@@ -50,6 +54,14 @@ class Player(Ship):
         self.image = self.original_image
         self.update_rect()
 
+
+    def apply_upgrades(self, levels: dict[str, int]) -> None:
+        """Set fresh round stats from persistent levels, without compounding."""
+        stats = effective_stats(levels)
+        self.needs.max_health = stats["max_health"]
+        self.needs.health = self.needs.max_health
+        self.bullet_cooldown = stats["bullet_cooldown"]
+        self.thrust = stats["thrust"]
 
     def create_ship_surface(self) -> pygame.Surface:
         """Create and return the triangular player image"""
@@ -239,7 +251,8 @@ class Needs:
     def __init__(self) -> None:
         self.max_fuel = STARTING_FUEL
         self.fuel = STARTING_FUEL
-        self.health = STARTING_HEALTH
+        self.max_health = STARTING_HEALTH
+        self.health = self.max_health
 
     def has_fuel(self) -> bool:
         """Returns true if the player still has fuel"""

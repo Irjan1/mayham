@@ -1,16 +1,18 @@
 """Tests for fixed and procedurally generated arena geometry."""
 
+from collections import Counter
 import random
 import unittest
 from unittest.mock import patch
 
 import pygame
 
-from config import HEIGHT, PLAYER_RADIUS, WIDTH
+from config import FUEL_SIZE, HEIGHT, PLAYER_RADIUS, WIDTH
 from src.arena import (
     ARENA_STYLES, STYLE_CLEARANCE, GRID_SIZE, MIN_NAVIGABLE_FRACTION, MIN_SPAWN_DISTANCE,
     OBSTACLE_CLEARANCE, SPAWN_CLEARANCE, WALL_CLEARANCE,
-    ArenaLayout, create_fixed_arena, generate_arena, get_reachable_cells,
+    ArenaLayout, _make_structure, _rotate_structure, create_fixed_arena, generate_arena,
+    get_fuel_positions, get_reachable_cells,
     rectangle_fits, validate_arena,
 )
 from src.geometry import circle_intersects_rect
@@ -147,10 +149,93 @@ class GeneratedArenaTests(unittest.TestCase):
 
 
 class RichArenaTests(unittest.TestCase):
-    def test_each_style_is_valid_and_repeatable_for_100_seeds(self):
+    def assert_structure_geometry(self, parts):
+        """Check solid edge joins and identify the L's missing corner or U's mouth."""
+        bounds = parts[0].unionall(parts[1:])
+        for index, rect in enumerate(parts):
+            self.assertGreater(rect.width, 0)
+            self.assertGreater(rect.height, 0)
+            self.assertTrue(bounds.contains(rect))
+            for other in parts[:index]:
+                self.assertFalse(rect.colliderect(other))
+            if index:
+                self.assertTrue(any(
+                    ((rect.right == other.left or rect.left == other.right)
+                     and min(rect.bottom, other.bottom) > max(rect.top, other.top))
+                    or ((rect.bottom == other.top or rect.top == other.bottom)
+                        and min(rect.right, other.right) > max(rect.left, other.left))
+                    for other in parts[:index]
+                ))
+        if len(parts) == 1:
+            return None
+        corners = (
+            (bounds.right - 1, bounds.top), (bounds.right - 1, bounds.bottom - 1),
+            (bounds.left, bounds.bottom - 1), (bounds.left, bounds.top),
+        )
+        if len(parts) == 2:
+            points = corners
+        else:
+            self.assertEqual(len(parts), 3)
+            self.assertTrue(all(any(rect.collidepoint(point) for rect in parts) for point in corners))
+            points = (
+                (bounds.centerx, bounds.top), (bounds.right - 1, bounds.centery),
+                (bounds.centerx, bounds.bottom - 1), (bounds.left, bounds.centery),
+            )
+        covered = [any(rect.collidepoint(point) for rect in parts) for point in points]
+        self.assertEqual(covered.count(False), 1)
+        return covered.index(False)
+
+    def test_l_and_u_quarter_turns_have_exact_geometry(self):
+        left = (0, 0, 24, 100)
+        shapes = (
+            ([left, (24, 76, 136, 24)], (
+                [left, (24, 76, 136, 24)],
+                [(0, 0, 100, 24), (0, 24, 24, 136)],
+                [(136, 0, 24, 100), (0, 0, 136, 24)],
+                [(0, 136, 100, 24), (76, 0, 24, 136)],
+            )),
+            ([left, (24, 76, 112, 24), (136, 0, 24, 100)], (
+                [left, (24, 76, 112, 24), (136, 0, 24, 100)],
+                [(0, 0, 100, 24), (0, 24, 24, 112), (0, 136, 100, 24)],
+                [(136, 0, 24, 100), (24, 0, 112, 24), (0, 0, 24, 100)],
+                [(0, 136, 100, 24), (76, 24, 24, 112), (0, 0, 100, 24)],
+            )),
+        )
+        for original, orientations in shapes:
+            parts = [pygame.Rect(rect) for rect in original]
+            for turn, expected in enumerate(orientations):
+                with self.subTest(parts=len(parts), turn=turn):
+                    rotated = _rotate_structure(parts, turn)
+                    self.assertEqual(rotated, [pygame.Rect(rect) for rect in expected])
+                    self.assertEqual(self.assert_structure_geometry(rotated), turn)
+                    self.assertEqual(sum(rect.width * rect.height for rect in rotated),
+                                     sum(rect.width * rect.height for rect in parts))
+                    self.assertEqual(parts, [pygame.Rect(rect) for rect in original])
+            self.assertEqual(_rotate_structure(parts, 4), parts)
+
+    def test_corridor_orientations_keep_the_same_lane_dimensions(self):
+        for vertical in (True, False):
+            for shape in ("L", "U"):
+                sizes = []
+                for turn in range(4):
+                    rng = random.Random(42)
+                    with patch.object(rng, 'choice', side_effect=(shape, turn)):
+                        parts = _make_structure(rng, "corridors", vertical)
+                    self.assertEqual(self.assert_structure_geometry(parts), turn)
+                    bounds = parts[0].unionall(parts[1:])
+                    sizes.append(bounds.size)
+                    self.assertEqual(bounds.topleft, (0, 0))
+                    self.assertGreaterEqual(max(bounds.size), 280)
+                    self.assertEqual(bounds.height > bounds.width, vertical)
+                self.assertEqual(len(set(sizes)), 1)
+
+    def test_each_style_is_valid_repeatable_and_varied_for_300_seeds(self):
         for style in ARENA_STYLES:
             fallback_count = 0
-            for seed in range(100):
+            shapes = Counter()
+            orientations = {2: Counter(), 3: Counter()}
+            sizes = {2: set(), 3: set()}
+            for seed in range(300):
                 with self.subTest(style=style, seed=seed):
                     arena = generate_arena(seed, style)
                     self.assertEqual(arena, generate_arena(seed, style))
@@ -163,12 +248,39 @@ class RichArenaTests(unittest.TestCase):
                             self.assertLessEqual(len(arena.structures), 3)
                         elif style == "corridors":
                             self.assertEqual(len(arena.structures), 3)
-                            self.assertTrue(all(any(max(rect.size) >= 280 for rect in group)
+                            self.assertTrue(all(max(group[0].unionall(group[1:]).size) >= 280
                                                 for group in arena.structures))
                         else:
                             self.assertGreaterEqual(len(arena.structures), 5)
-            print(f"{style}: {fallback_count}/100 fallbacks")
-            self.assertLessEqual(fallback_count, 1)
+                    for group in arena.structures:
+                        shapes[len(group)] += 1
+                        turn = self.assert_structure_geometry(group)
+                        if turn is not None:
+                            orientations[len(group)][turn] += 1
+                            sizes[len(group)].add(group[0].unionall(group[1:]).size)
+                    positions = get_fuel_positions(arena)
+                    self.assertTrue(positions)
+                    reachable = get_reachable_cells(arena)
+                    for position in positions:
+                        fuel = pygame.Rect(position, FUEL_SIZE)
+                        self.assertTrue(rectangle_fits(fuel, arena.obstacles + arena.hazards))
+                        self.assertIn((fuel.centerx // GRID_SIZE, fuel.centery // GRID_SIZE), reachable)
+            expected_shapes = (2, 3) if style == "corridors" else (2,)
+            for shape in expected_shapes:
+                counts = orientations[shape]
+                self.assertEqual(set(counts), set(range(4)))
+                self.assertGreater(len(sizes[shape]), 10)
+                for count in counts.values():
+                    # Broad bounds catch systematic rejection bias, not minor
+                    # differences from uniformly random sampling and placement.
+                    self.assertGreaterEqual(count, sum(counts.values()) * 0.15)
+                    self.assertLessEqual(count, sum(counts.values()) * 0.35)
+            if style != "corridors":
+                self.assertGreater(shapes[1], sum(shapes.values()) * 0.6)
+                self.assertEqual(shapes[3], 0)
+            print(f"{style}: {fallback_count}/300 fallbacks; "
+                  f"L orientations: {dict(orientations[2])}; U orientations: {dict(orientations[3])}")
+            self.assertLessEqual(fallback_count, 3)
 
     def test_styles_have_grouped_shapes_and_optional_environment_features(self):
         arenas = [generate_arena(seed) for seed in range(40)]

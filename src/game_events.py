@@ -56,7 +56,8 @@ class GameEvents:
 
     def game_winner(self, winner) -> None:
         """Store the winner, update score and when the game ended."""
-        if self.game_winner_player is not None:
+        # A draw has no winning player, but its timestamp still ends the round.
+        if self.game_winner_time is not None:
             return
 
         self.game_winner_player = winner

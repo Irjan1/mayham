@@ -44,7 +44,7 @@ class GameSetupTests(unittest.TestCase):
             game = Game(seed=42)
 
         self.assertEqual(game.arena_seed, 42)
-        self.assertEqual(game.arena, generate_arena(42))
+        self.assertEqual(game.arena, generate_arena(42, game.arena.style))
         self.assertTrue(validate_arena(game.arena))
         self.assertIn("Arena seed: 42", output.getvalue())
         self.assertEqual([obstacle.rect for obstacle in game.obstacles], game.arena.obstacles)
@@ -68,7 +68,7 @@ class GameSetupTests(unittest.TestCase):
         game.start_new_round()
 
         self.assertEqual(game.arena_seed, 43)
-        self.assertEqual(game.arena, generate_arena(43))
+        self.assertEqual(game.arena, generate_arena(43, game.arena.style))
         self.assertNotEqual(game.arena, first_arena)
         self.assertTrue(validate_arena(game.arena))
         self.assertEqual([obstacle.rect for obstacle in game.obstacles], game.arena.obstacles)
@@ -126,12 +126,17 @@ class GameSetupTests(unittest.TestCase):
         self.assertEqual(game.arena_seed, 42)
         with patch('pygame.time.get_ticks', return_value=winner_time + round_delay):
             game.handle_winner_time(winner_time)
+            self.assertEqual(game.upgrade_player, "Player2")
+            game.select_upgrade(game.upgrade_choices.index('rapid_fire'))
+        next_round_time = winner_time + round_delay + game.upgrade_confirmation_delay
+        with patch('pygame.time.get_ticks', return_value=next_round_time):
+            game.update_game()
 
         self.assertEqual(game.arena_seed, 43)
         self.assertEqual(GameEvents.get_scores(), {"Player1": 1, "Player2": 0})
         self.assertIsNone(game.game_events.get_game_winner())
         self.assertIsNone(game.game_events.get_game_winner_time())
-        self.assertEqual(game.time_from_fuel_spawn, winner_time + round_delay)
+        self.assertEqual(game.time_from_fuel_spawn, next_round_time)
         for player in game.players:
             self.assertEqual(player.needs.health, STARTING_HEALTH)
             self.assertEqual(player.needs.fuel, STARTING_FUEL)
@@ -145,7 +150,7 @@ class GameSetupTests(unittest.TestCase):
             game.fuel_rng.random()
         game.start_new_round()
 
-        self.assertEqual(game.arena, generate_arena(43))
+        self.assertEqual(game.arena, generate_arena(43, game.arena.style))
         self.assertEqual(random.getstate(), state)
 
     def test_starting_seed_zero_reproduces_same_layout(self):

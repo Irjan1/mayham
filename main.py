@@ -18,10 +18,11 @@ from src.arena import (
     get_fuel_positions,
 )
 from src.game_events import GameEvents
-from src.gui import NeedsDisplay, Scoreboard, WinnerAnnouncement
+from src.gui import NeedsDisplay, Scoreboard, UpgradeSelection, WinnerAnnouncement
 from src.geometry import circle_intersects_rect
 from src.objects import Fuel, Hazard, Obstacle
 from src.player import Player1, Player2
+from src.upgrades import apply_upgrade, choose_upgrade_offers, create_upgrade_levels
 
 
 class Game:
@@ -38,6 +39,15 @@ class Game:
         self.fixed_arena = fixed_arena
         self.arena_style = style
         self.next_arena_seed = seed if seed is not None else random.SystemRandom().randrange(2 ** 32)
+        self.style_rng = random.Random(f"{self.next_arena_seed}:styles")
+        self.upgrade_rng = random.Random(f"{self.next_arena_seed}:upgrades")
+        self.style_bag = []
+        self.last_arena_style = None
+        self.upgrade_levels = {
+            "Player1": create_upgrade_levels(),
+            "Player2": create_upgrade_levels(),
+        }
+        self.upgrade_confirmation_delay = 250
 
         self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption(TITLE)
@@ -53,12 +63,33 @@ class Game:
 
         self.start_new_round()
 
+    def choose_arena_style(self) -> str:
+        """Use each style once per shuffled bag, avoiding a boundary repeat."""
+        if self.arena_style is not None:
+            return self.arena_style
+        if not self.style_bag:
+            self.style_bag = list(ARENA_STYLES)
+            self.style_rng.shuffle(self.style_bag)
+            if len(self.style_bag) > 1 and self.style_bag[0] == self.last_arena_style:
+                self.style_bag[0], self.style_bag[1] = self.style_bag[1], self.style_bag[0]
+        style = self.style_bag.pop(0)
+        self.last_arena_style = style
+        return style
+
     def start_new_round(self) -> None:
         """Reset winner state and create fresh game objects for a new round."""
+        self.upgrade_player = None
+        self.upgrade_choices = []
+        self.upgrade_screen = None
+        self.selected_upgrade_index = None
+        self.upgrade_selected_time = None
         self.game_events.reset_game_winner()
         self.arena_seed = self.next_arena_seed
         self.next_arena_seed += 1
-        arena = create_fixed_arena() if self.fixed_arena else generate_arena(self.arena_seed, self.arena_style)
+        if self.fixed_arena:
+            arena = create_fixed_arena()
+        else:
+            arena = generate_arena(self.arena_seed, self.choose_arena_style())
         print(f"Arena seed: {self.arena_seed} ({arena.style})")
         # This stream is separate from arena generation and global random state.
         self.fuel_rng = random.Random(self.arena_seed)
@@ -76,6 +107,8 @@ class Game:
         self.fuel_positions = get_fuel_positions(arena)
         self.player1 = Player1(*arena.player1_spawn)
         self.player2 = Player2(*arena.player2_spawn)
+        self.player1.apply_upgrades(self.upgrade_levels["Player1"])
+        self.player2.apply_upgrades(self.upgrade_levels["Player2"])
 
         self.needs_display = NeedsDisplay(self.player1, self.player2)
         self.scoreboard = Scoreboard()
@@ -116,50 +149,59 @@ class Game:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+            elif event.type == pygame.KEYDOWN and self.upgrade_player is not None:
+                keys = (pygame.K_1, pygame.K_2, pygame.K_3)
+                if event.key in keys:
+                    self.select_upgrade(keys.index(event.key))
 
     def update_game(self) -> None:
-        """Update players, fuel, bullets and winner logic."""
-        keys = pygame.key.get_pressed()
+        """Update the active round, or wait for the losing player's choice."""
+        if self.upgrade_player is not None:
+            # Only selection feedback advances here. All gameplay state is frozen.
+            if self.selected_upgrade_index is not None:
+                elapsed = pygame.time.get_ticks() - self.upgrade_selected_time
+                if elapsed >= self.upgrade_confirmation_delay:
+                    self.start_new_round()
+            return
 
-        winner = self.game_events.get_game_winner()
-        if winner is None:
-            self.players.update(
-                keys,
-                self.obstacles,
-                self.players,
-                self.bullets,
-                self.fuel_cans,
-                self.game_events,
-            )
-            if self.game_events.get_game_winner() is None:
-                for player in self.players:
-                    if any(circle_intersects_rect((player.x, player.y), player.radius, hazard.rect)
-                           for hazard in self.hazards):
-                        opponent = player.get_opponent(self.players)
-                        self.game_events.hazard_hit_player(player, opponent)
-                        break
-
-            if self.game_events.get_game_winner() is None:
-                obstacle_count = len(self.obstacles)
-                self.bullets.update(self.players, self.obstacles, self.game_events)
-                if len(self.obstacles) != obstacle_count:
-                    # Removing blocks can open new safe routes. Keep the original
-                    # seeded layout intact, and prepare fuel from live rectangles.
-                    self.fuel_positions = get_fuel_positions(
-                        self.arena, [obstacle.rect for obstacle in self.obstacles],
-                    )
-
-        self.spawn_fuel()
-        self.all_sprites.add(self.bullets)
-
-        winner = self.game_events.get_game_winner()
         winner_time = self.game_events.get_game_winner_time()
+        if winner_time is not None:
+            self.handle_winner_time(winner_time)
+            return
 
-        if winner is not None and winner_time is not None:
+        keys = pygame.key.get_pressed()
+        self.players.update(
+            keys, self.obstacles, self.players, self.bullets,
+            self.fuel_cans, self.game_events,
+        )
+        if self.game_events.get_game_winner_time() is None:
+            for player in self.players:
+                if any(circle_intersects_rect((player.x, player.y), player.radius, hazard.rect)
+                       for hazard in self.hazards):
+                    opponent = player.get_opponent(self.players)
+                    self.game_events.hazard_hit_player(player, opponent)
+                    break
+
+        if self.game_events.get_game_winner_time() is None:
+            obstacle_count = len(self.obstacles)
+            self.bullets.update(self.players, self.obstacles, self.game_events)
+            if len(self.obstacles) != obstacle_count:
+                # Keep the seeded layout intact; prepare fuel from live rectangles.
+                self.fuel_positions = get_fuel_positions(
+                    self.arena, [obstacle.rect for obstacle in self.obstacles],
+                )
+
+        self.all_sprites.add(self.bullets)
+        winner_time = self.game_events.get_game_winner_time()
+        if winner_time is None:
+            self.spawn_fuel()
+        else:
             self.handle_winner_time(winner_time)
 
     def spawn_fuel(self) -> None:
-        """Spawn one fuel can if none exists and enough time has passed."""
+        """Spawn one fuel can if none exists and enough active-round time has passed."""
+        if self.upgrade_player is not None or self.game_events.get_game_winner_time() is not None:
+            return
         current_time = pygame.time.get_ticks()
 
         if len(self.fuel_cans) == 0 and current_time - self.time_from_fuel_spawn > self.fuel_spawn_time:
@@ -176,16 +218,45 @@ class Game:
             self.time_from_fuel_spawn = current_time
 
     def handle_winner_time(self, winner_time: int) -> None:
-        """Start a new round after winner has been shown."""
-        current_time = pygame.time.get_ticks()
-        time_since_winner = current_time - winner_time
+        """After the winner announcement, offer an upgrade or skip to the next round."""
+        if self.upgrade_player is not None or self.game_events.get_game_winner_time() != winner_time:
+            return
+        elapsed = pygame.time.get_ticks() - winner_time
+        if elapsed < self.winner_show_delay + self.winner_choose_delay:
+            return
 
-        if time_since_winner >= self.winner_show_delay + self.winner_choose_delay:
+        winner = self.game_events.get_game_winner()
+        if winner is None:
             self.start_new_round()
+            return
+        loser = "Player2" if winner is self.player1 else "Player1"
+        choices = choose_upgrade_offers(self.upgrade_levels[loser], self.upgrade_rng)
+        if not choices:
+            self.start_new_round()
+            return
+        self.upgrade_player = loser
+        self.upgrade_choices = choices
+        self.upgrade_screen = UpgradeSelection(loser, choices, self.upgrade_levels[loser])
+
+    def select_upgrade(self, index: int) -> None:
+        """Accept exactly one offered card, then briefly show the selection."""
+        if self.upgrade_player is None or self.selected_upgrade_index is not None:
+            return
+        if not 0 <= index < len(self.upgrade_choices):
+            return
+        upgrade_id = self.upgrade_choices[index]
+        if apply_upgrade(self.upgrade_levels[self.upgrade_player], upgrade_id):
+            self.selected_upgrade_index = index
+            self.upgrade_selected_time = pygame.time.get_ticks()
 
     def draw(self) -> None:
         """Draw all sprites, the GUI and winner."""
         self.screen.fill("black")
+        if self.upgrade_player is not None:
+            self.scoreboard.draw(self.screen)
+            self.upgrade_screen.draw(self.screen, self.selected_upgrade_index)
+            pygame.display.flip()
+            return
 
         self.all_sprites.draw(self.screen)
         self.needs_display.draw(self.screen)
@@ -194,7 +265,7 @@ class Game:
         winner = self.game_events.get_game_winner()
         winner_time = self.game_events.get_game_winner_time()
 
-        if winner is not None and winner_time is not None:
+        if winner_time is not None:
             current_time = pygame.time.get_ticks()
             time_since_winner = current_time - winner_time
 
