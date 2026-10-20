@@ -42,6 +42,12 @@ class GameEvents:
         if player.needs.health == 0 and player.is_alive:
             self.player_died(player, killer)
 
+    def hazard_hit_player(self, player, opponent) -> None:
+        """Spike zones are lethal and award the opponent the round."""
+        if player.is_alive:
+            player.needs.health = 0
+            self.player_died(player, opponent)
+
     def player_died(self, player, killer) -> None:
         """Mark a player as dead and pass the killer to the winner handler."""
         player.is_alive = False
