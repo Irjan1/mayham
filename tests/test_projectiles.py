@@ -10,7 +10,7 @@ os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
 import pygame
 
-from config import DESTRUCTIBLE_HITS, EXPLOSION_LIFETIME, HEIGHT, WIDTH
+from config import BULLETSPEED, DESTRUCTIBLE_HITS, EXPLOSION_LIFETIME, HEIGHT, WIDTH
 from main import Game
 from src.arena import ArenaLayout
 from src.game_events import GameEvents
@@ -45,6 +45,36 @@ class ProjectileTests(unittest.TestCase):
 
     def update_bullets(self):
         self.bullets.update(self.players, self.obstacles, self.events, self.explosions)
+
+    def test_configured_speed_moves_equal_distance_at_different_headings(self):
+        for angle in (0, 45, 90, 180, 270):
+            with self.subTest(angle=angle):
+                bullet = Bullet(400, 300, angle, self.owner)
+                bullet.update(self.players, self.obstacles, self.events, self.explosions)
+                self.assertAlmostEqual(math.hypot(bullet.vx, bullet.vy), BULLETSPEED)
+                self.assertAlmostEqual(math.hypot(bullet.x - 400, bullet.y - 300), BULLETSPEED)
+                self.assertEqual((bullet.radius, bullet.damage), (4, 20))
+
+    def test_configured_speed_combines_large_heavy_ricochets_and_single_blast(self):
+        self.owner.apply_upgrades({upgrade_id: 2 for upgrade_id in UPGRADES})
+        self.owner.x, self.owner.y, self.owner.angle = 190, 300, 270
+        self.obstacles.add(Obstacle(200, 250, (1, 100), 'white'))
+        with patch('pygame.time.get_ticks', return_value=1000):
+            self.owner.shoot(self.bullets)
+        bullet = next(iter(self.bullets))
+        self.update_bullets()
+        self.assertFalse(bullet.finished)
+        self.assertEqual(bullet.bounces_remaining, 1)
+        self.assertAlmostEqual(bullet.vx, -BULLETSPEED)
+        self.assertLessEqual(bullet.x + bullet.radius, 200)
+        self.assertEqual(len(self.explosions), 0)
+        self.target.x, self.target.y = 170, 300
+        self.update_bullets()
+        bullet.update(self.players, self.obstacles, self.events, self.explosions)
+        self.assertTrue(bullet.finished)
+        self.assertEqual(self.target.needs.health, 72)
+        self.assertEqual(self.owner.needs.health, 140)
+        self.assertEqual(len(self.explosions), 1)
 
     def test_both_size_levels_match_visuals_and_leave_damage_unchanged(self):
         for level, radius in ((1, 5), (2, 6)):

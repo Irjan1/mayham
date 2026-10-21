@@ -192,6 +192,24 @@ class GameSetupTests(unittest.TestCase):
         self.assertEqual(game.player1.needs.fuel, 10 + STARTING_FUEL // 2)
         self.assertEqual(fuel.groups(), [])
 
+    def test_canister_art_preserves_original_pickup_rect_and_circle_range(self):
+        game = Game(seed=42, fixed_arena=True)
+        for distance, collected in ((39, True), (40, False)):
+            with self.subTest(distance=distance):
+                fuel = Fuel(300, 100, FUEL_SIZE, FUEL_COLOR)
+                cans = pygame.sprite.Group(fuel)
+                self.assertEqual(fuel.rect, pygame.Rect(300, 100, 30, 30))
+                self.assertEqual(fuel.image.get_size(), FUEL_SIZE)
+                game.player1.x = fuel.rect.centerx + distance
+                game.player1.y = fuel.rect.centery
+                game.player1.update_rect()
+                game.player1.needs.fuel = 10
+                # The original 30x30 pickup has a circumscribed circle radius
+                # of about 21.2; with the ship's 18, contact ends near 39.2 px.
+                game.player1.pick_up_fuel(cans)
+                self.assertEqual(game.player1.needs.fuel, 60 if collected else 10)
+                self.assertEqual(len(cans), 0 if collected else 1)
+
     def test_no_fuel_position_skips_spawn_and_allows_later_retry(self):
         game = Game(seed=42)
         positions = game.fuel_positions

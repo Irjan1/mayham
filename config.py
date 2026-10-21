@@ -28,7 +28,7 @@ GRAVITY = 0.02
 THRUST = 0.1
 
 #bullet
-BULLETSPEED = 8.1
+BULLETSPEED = 8.8  # pixels per frame; a modest increase from 8.1
 BULLET_RADIUS = 4
 BULLET_DAMAGE = 20
 BULLET_COOLDOWN = 300

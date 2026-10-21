@@ -117,7 +117,8 @@ the selection screen only renders cards. No upgrade rarity or pickup system is a
 
 New bullets copy their shooter's size, damage, bounce count and explosion radius.
 All four projectile upgrades combine, and existing bullets keep the stats they had
-when fired. The base bullet radius is 4 px and its damage is 20.
+when fired. The base bullet radius is 4 px and its damage is 20. Shots travel at
+8.8 pixels per frame, up modestly from 8.1; `BULLETSPEED` in `config.py` controls this.
 
 Bullets move in steps of at most one pixel, checking solid obstacles before players.
 Ricochets use circular hitboxes and surface normals. Each contacted surface costs
@@ -135,6 +136,56 @@ its 180 ms lifetime affects only drawing, never damage.
 
 Projectile size/damage bonuses are in `src/upgrades.py`. Base radius/damage,
 explosion radii and flash lifetime are in `config.py` for balancing.
+
+## Visual effects
+
+Thrust leaves a layered orange plume with a brief pale engine core; moving bullets leave dim amber trails,
+and solid impacts make small sparks. Breaking tan blocks scatters brief debris.
+Obstacle edging and highlighted red spikes make the different surfaces easier to read.
+Blue and red ships have finned silhouettes, cockpit detail and a visible rear nozzle,
+while orange fuel canisters have a handle, cap and fuel-drop symbol. Ship and fuel
+surface sizes and collision rules remain unchanged.
+
+`src/effects.py` owns a separate cosmetic random generator and caps the shared pool
+at 240 particles. Particles last at most 0.36 seconds and draw behind gameplay
+sprites. They never enter collision groups or change arena randomness. Effects
+pause during upgrade selection and clear when a new room is created.
+
+## Space backgrounds
+
+Each round gets one static, seeded space background. The cached surface draws
+behind the existing particles, arena sprites and HUD; upgrade selection keeps its
+black background. Background randomness does not affect arena layouts, fuel,
+upgrades or effects. The round seed is XORed with a fixed integer salt before
+creating a private `random.Random` instance.
+
+Everything for backgrounds lives in `src/background.py`, including the preview
+command and visual settings near the top. Initial style weights are empty space
+30, planets 25, galaxies 15, nebulae 20, black holes 5 and nova remnants 5. Weights
+are relative and do not have to total 100. Each scene chooses one theme, with
+variations in size, placement and muted colors. Planets can be rocky, banded or
+dark, with optional rings. Soft cloud stamps form galaxies, nebulae and faded
+remnant shells. Nothing in the background has a collision shape.
+
+Preview backgrounds without opening a game window (outputs are for local review):
+
+```sh
+python -m src.background --start 0 --count 12 --output backgrounds.png
+python -m src.background --start 0 --count 6 --style planet --output planets.png
+python -m src.background --seed 42 --style black_hole --output black_hole.png
+```
+
+Grids are labelled with seeds and styles. A single seed saves a full-resolution
+example with a caption. `--width` and `--height` override the game's current
+viewport dimensions. A forced style previews its variations without changing the
+weights or gameplay.
+
+Lower `BRIGHTNESS` or `OPACITY` (both 0–1) to darken every background. Use
+`STAR_DENSITY`/`STAR_BRIGHTNESS`, `STYLE_WEIGHTS`, the color palettes and the named
+size, cloud and ring settings to tune individual features. To add a style, write
+one drawing function taking `(surface, rng)` and register its name in
+`STYLE_DRAWERS`, `STYLE_WEIGHTS` and `STAR_DENSITY`. Use the supplied RNG and keep
+all drawing in this module so generation stays reproducible.
 
 ## Implementation
 

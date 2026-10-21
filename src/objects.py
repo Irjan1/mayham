@@ -25,14 +25,21 @@ class Obstacle(pygame.sprite.Sprite):
     """A static rectangular obstacle that ships can collide with."""
 
     def __init__(self, x: int, y: int, size: tuple[int, int], color: tuple[int, int, int],
-                 destructible: bool = False):
+                 destructible: bool = False, effects=None):
         """Crate the obstacle at the given position with given size and color"""
         super().__init__()
 
         self.destructible = destructible
+        self.effects = effects
         self.hits_remaining = DESTRUCTIBLE_HITS if destructible else 0
         self.image = pygame.Surface(size)
         self.image.fill(DESTRUCTIBLE_COLOR if destructible else color)
+        border = (145, 105, 55) if destructible else (170, 185, 200)
+        pygame.draw.rect(self.image, border, self.image.get_rect(), 1)
+        if destructible and min(size) >= 12:
+            for corner_x, corner_y in ((3, 3), (size[0] - 5, 3), (3, size[1] - 5),
+                                       (size[0] - 5, size[1] - 5)):
+                pygame.draw.rect(self.image, (245, 205, 130), (corner_x, corner_y, 2, 2))
         self.rect = self.image.get_rect(topleft=(x, y))
 
     def take_bullet_hit(self) -> None:
@@ -41,6 +48,8 @@ class Obstacle(pygame.sprite.Sprite):
             return
         self.hits_remaining -= 1
         if self.hits_remaining <= 0:
+            if self.effects is not None:
+                self.effects.debris(self.rect)
             self.kill()
             return
         width, height = self.image.get_size()
@@ -58,6 +67,8 @@ def draw_hazard(surface: pygame.Surface, rect: pygame.Rect) -> None:
             (x, rect.bottom - 1), (min(x + 8, rect.right - 1), rect.top),
             (min(x + 16, rect.right - 1), rect.bottom - 1),
         ])
+        pygame.draw.line(surface, (255, 175, 145),
+                         (x, rect.bottom - 2), (min(x + 8, rect.right - 1), rect.top + 1))
     pygame.draw.rect(surface, HAZARD_COLOR, rect, 2)
 
 
@@ -76,7 +87,7 @@ class Bullet(pygame.sprite.Sprite):
 
     def __init__(self, x: float, y: float, angle: float, owner: pygame.sprite.Sprite,
                  radius: int = BULLET_RADIUS, damage: int = BULLET_DAMAGE,
-                 bounces: int = 0, explosion_radius: int = 0):
+                 bounces: int = 0, explosion_radius: int = 0, effects=None):
         super().__init__()
         self.x = x
         self.y = y
@@ -88,6 +99,7 @@ class Bullet(pygame.sprite.Sprite):
         self.bounces_remaining = bounces
         self.explosion_radius = explosion_radius
         self.finished = False
+        self.effects = effects
 
         self.image = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
         color = "gold" if explosion_radius else "orange"
@@ -102,6 +114,8 @@ class Bullet(pygame.sprite.Sprite):
         """Move in short steps, checking cover before players at each position."""
         if self.finished or game_events.get_game_winner_time() is not None:
             return
+        if self.effects is not None and (self.vx or self.vy):
+            self.effects.trail(self)
         # At most one pixel per step prevents jumping across thin obstacles.
         # Read velocity each step so the remaining travel follows a ricochet.
         steps = max(1, math.ceil(math.hypot(self.vx, self.vy)))
@@ -145,6 +159,11 @@ class Bullet(pygame.sprite.Sprite):
         """Separate and reflect inward motion, or report exhausted ricochets."""
         nx, ny = normal
         normal_speed = self.vx * nx + self.vy * ny
+        if self.effects is not None and (normal_speed < 0 or self.bounces_remaining == 0):
+            # The separated center minus the radius lies on the contacted surface.
+            position = (self.x + nx * (depth - self.radius),
+                        self.y + ny * (depth - self.radius))
+            self.effects.impact(position, normal)
         if obstacle is not None and (normal_speed < 0 or self.bounces_remaining == 0):
             obstacle.take_bullet_hit()
         if self.bounces_remaining == 0:
@@ -198,18 +217,27 @@ class Explosion(pygame.sprite.Sprite):
 
 
 class Fuel(pygame.sprite.Sprite):
-    """Class for fuel cans
+    """An orange canister, keeping the original pickup rectangle and collision rule."""
 
-    Spawn in random places at the map and can be picked up by one of the players
-    The Fuel can is represented by a red/orange rectangle
-    """
     def __init__(self, x: int, y: int, size: tuple[int, int], color: tuple[int, int, int]):
-        """Create a fuel can at given position with size and color"""
         super().__init__()
-        self.image = pygame.Surface(size)
-        self.image.fill(color)
+        # Transparent corners change only the drawing, not the pickup rectangle.
+        self.image = pygame.Surface(size, pygame.SRCALPHA)
+        width, height = size
+        dark = (75, 45, 20)
+        pygame.draw.rect(self.image, (255, 205, 95), (6, 2, width // 3, 9), 2, border_radius=2)
+        pygame.draw.rect(self.image, dark, (width - 11, 3, 7, 7), border_radius=1)
+        pygame.draw.rect(self.image, (235, 225, 190), (width - 10, 4, 5, 3))
+        body = pygame.Rect(3, 8, width - 6, height - 10)
+        pygame.draw.rect(self.image, color, body, border_radius=3)
+        pygame.draw.rect(self.image, dark, body, 2, border_radius=3)
+        pygame.draw.line(self.image, (255, 215, 125), (6, 11), (6, height - 6))
+        center_x, center_y = width // 2, height // 2 + 4
+        cream = (255, 245, 205)
+        pygame.draw.polygon(self.image, cream, [(center_x, center_y - 7),
+                            (center_x - 4, center_y), (center_x + 4, center_y)])
+        pygame.draw.circle(self.image, cream, (center_x, center_y), 4)
         self.rect = self.image.get_rect(topleft=(x, y))
-
 
 
 class Ship(pygame.sprite.Sprite):

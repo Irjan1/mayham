@@ -18,6 +18,8 @@ from src.arena import (
     get_fuel_positions,
 )
 from src.game_events import GameEvents
+from src.background import generate_background
+from src.effects import ParticleEffects
 from src.gui import NeedsDisplay, Scoreboard, UpgradeSelection, WinnerAnnouncement
 from src.geometry import circle_intersects_rect
 from src.objects import Fuel, Hazard, Obstacle
@@ -39,6 +41,7 @@ class Game:
         self.fixed_arena = fixed_arena
         self.arena_style = style
         self.next_arena_seed = seed if seed is not None else random.SystemRandom().randrange(2 ** 32)
+        self.effects = ParticleEffects(f"{self.next_arena_seed}:effects")
         self.style_rng = random.Random(f"{self.next_arena_seed}:styles")
         self.upgrade_rng = random.Random(f"{self.next_arena_seed}:upgrades")
         self.style_bag = []
@@ -94,6 +97,7 @@ class Game:
         # This stream is separate from arena generation and global random state.
         self.fuel_rng = random.Random(self.arena_seed)
         self.game_objects(arena)
+        self.background, self.background_style = generate_background(self.arena_seed, self.screen.get_size())
         self.time_from_fuel_spawn = pygame.time.get_ticks()
 
     def game_objects(self, arena: ArenaLayout) -> None:
@@ -105,9 +109,12 @@ class Game:
                     sprite.kill()
 
         self.arena = arena
+        self.effects.clear()
         self.fuel_positions = get_fuel_positions(arena)
         self.player1 = Player1(*arena.player1_spawn)
         self.player2 = Player2(*arena.player2_spawn)
+        self.player1.effects = self.effects
+        self.player2.effects = self.effects
         self.player1.apply_upgrades(self.upgrade_levels["Player1"])
         self.player2.apply_upgrades(self.upgrade_levels["Player2"])
 
@@ -122,6 +129,7 @@ class Game:
             obstacle = Obstacle(
                 rect.x, rect.y, rect.size, OBSTACLE_COLOR,
                 destructible=rect in arena.destructible_obstacles,
+                effects=self.effects,
             )
             self.obstacles.add(obstacle)
 
@@ -169,6 +177,7 @@ class Game:
         # Impact flashes can expire during the winner announcement, but not
         # while the upgrade menu has paused the game.
         self.explosions.update()
+        self.effects.update(self.clock.get_time() / 1000)
         winner_time = self.game_events.get_game_winner_time()
         if winner_time is not None:
             self.handle_winner_time(winner_time)
@@ -263,6 +272,9 @@ class Game:
             pygame.display.flip()
             return
 
+        self.screen.blit(self.background, (0, 0))
+        # Keep all particles behind rockets, bullets, cover, hazards and pickups.
+        self.effects.draw(self.screen)
         self.all_sprites.draw(self.screen)
         self.needs_display.draw(self.screen)
         self.scoreboard.draw(self.screen)

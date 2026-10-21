@@ -39,6 +39,7 @@ class Player(Ship):
         # Needs holder fuel og health for enhver spiller
         self.needs = Needs()
         self.is_alive = True
+        self.effects = None
 
         ## fuel cooldown makes the fuel drain less time per frame
         self.fuel_cooldown = FUEL_COOLDOWN
@@ -72,10 +73,36 @@ class Player(Ship):
         self.explosion_radius = stats["explosion_radius"]
 
     def create_ship_surface(self) -> pygame.Surface:
-        """Create and return the triangular player image"""
-        surface = pygame.Surface((40,40), pygame.SRCALPHA)
-        pygame.draw.polygon(surface, self.color, [(20,0), (5,35),(35,35)])
-        pygame.draw.rect(surface, "white", (17, 10, 6, 6))
+        """Draw a nose-up rocket on the original 40x40 surface."""
+        surface = pygame.Surface((40, 40), pygame.SRCALPHA)
+        blue = self.color == "blue"
+        body = (65, 120, 245) if blue else (235, 65, 75)
+        shadow = (30, 65, 155) if blue else (145, 30, 45)
+        highlight = (150, 200, 255) if blue else (255, 170, 160)
+        outline = (170, 185, 205)
+
+        # Swept blue fins and wider red fins give the players distinct silhouettes.
+        left_fin = [(15, 21), (6, 29), (6, 33), (17, 28)] if blue else [
+            (14, 19), (4, 29), (7, 32), (17, 28)]
+        right_fin = [(40 - x, y) for x, y in left_fin]
+        for fin in (left_fin, right_fin):
+            pygame.draw.polygon(surface, shadow, fin)
+            pygame.draw.polygon(surface, highlight, fin, 1)
+
+        pygame.draw.rect(surface, (45, 50, 65), (14, 28, 12, 8))
+        pygame.draw.rect(surface, outline, (14, 28, 12, 8), 1)
+        pygame.draw.rect(surface, (235, 150, 60), (17, 32, 6, 3))
+        hull = [(20, 2), (28, 16), (27, 27), (24, 31), (16, 31), (13, 27), (12, 16)]
+        pygame.draw.polygon(surface, body, hull)
+        pygame.draw.polygon(surface, shadow, [(20, 3), (28, 16), (27, 27), (24, 31), (20, 31)])
+        pygame.draw.polygon(surface, outline, hull, 1)
+        pygame.draw.polygon(surface, highlight, [(20, 3), (24, 11), (16, 11)])
+
+        canopy = [(17, 14), (23, 14), (24, 20), (22, 23), (18, 23), (16, 20)]
+        pygame.draw.polygon(surface, (110, 220, 240), canopy)
+        pygame.draw.polygon(surface, (20, 35, 55), canopy, 1)
+        pygame.draw.line(surface, (230, 250, 255), (18, 15), (21, 15))
+        pygame.draw.line(surface, highlight, (17, 26), (23, 26))
         return surface
 
     def collision(self, obstacle) -> bool:
@@ -158,6 +185,7 @@ class Player(Ship):
             self.x, self.y, self.angle, self,
             radius=self.bullet_radius, damage=self.bullet_damage,
             bounces=self.bullet_bounces, explosion_radius=self.explosion_radius,
+            effects=self.effects,
         )
         bullets.add(bullet)
 
@@ -255,6 +283,8 @@ class Player(Ship):
             radians = math.radians(self.angle)
             self.vx -= (math.sin(radians) * self.thrust)/3
             self.vy -= math.cos(radians) * self.thrust
+            if self.effects is not None:
+                self.effects.exhaust(self)
             
             curr_time = pygame.time.get_ticks()
 
