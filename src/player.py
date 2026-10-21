@@ -11,7 +11,7 @@ import math
 import pygame
 
 from config import (
-    BULLET_COOLDOWN, FUEL_COOLDOWN, GRAVITY, HEIGHT, PLAYER_RADIUS,
+    BULLET_COOLDOWN, BULLET_DAMAGE, BULLET_RADIUS, FUEL_COOLDOWN, GRAVITY, HEIGHT, PLAYER_RADIUS,
     STARTING_FUEL, STARTING_HEALTH, THRUST, WIDTH,
 )
 from src.objects import Ship, Obstacle, Bullet
@@ -44,6 +44,10 @@ class Player(Ship):
         self.fuel_cooldown = FUEL_COOLDOWN
         self.last_fuel = 0
 
+        self.bullet_radius = BULLET_RADIUS
+        self.bullet_damage = BULLET_DAMAGE
+        self.bullet_bounces = 0
+        self.explosion_radius = 0
         self.bullet_cooldown = BULLET_COOLDOWN
         self.last_shot = 0
         self.wall_damage_cooldown = 500
@@ -62,6 +66,10 @@ class Player(Ship):
         self.needs.health = self.needs.max_health
         self.bullet_cooldown = stats["bullet_cooldown"]
         self.thrust = stats["thrust"]
+        self.bullet_radius = stats["bullet_radius"]
+        self.bullet_damage = stats["bullet_damage"]
+        self.bullet_bounces = stats["bullet_bounces"]
+        self.explosion_radius = stats["explosion_radius"]
 
     def create_ship_surface(self) -> pygame.Surface:
         """Create and return the triangular player image"""
@@ -146,7 +154,11 @@ class Player(Ship):
             return
 
 
-        bullet = Bullet(self.x, self.y, self.angle, self)
+        bullet = Bullet(
+            self.x, self.y, self.angle, self,
+            radius=self.bullet_radius, damage=self.bullet_damage,
+            bounces=self.bullet_bounces, explosion_radius=self.explosion_radius,
+        )
         bullets.add(bullet)
 
         self.last_shot = time

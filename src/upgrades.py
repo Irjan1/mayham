@@ -2,13 +2,17 @@
 
 from random import Random
 
-from config import BULLET_COOLDOWN, STARTING_HEALTH, THRUST
+from config import (
+    BULLET_COOLDOWN, BULLET_DAMAGE, BULLET_RADIUS, EXPLOSION_RADII, STARTING_HEALTH, THRUST,
+)
 
 
 MAX_UPGRADE_LEVEL = 2
 HULL_HEALTH_PER_LEVEL = 0.20
 RAPID_FIRE_REDUCTION_PER_LEVEL = 0.15
 THRUST_INCREASE_PER_LEVEL = 0.15
+BULLET_RADIUS_PER_LEVEL = 0.25
+BULLET_DAMAGE_PER_LEVEL = 0.20
 
 UPGRADES = {
     "reinforced_hull": {
@@ -27,6 +31,28 @@ UPGRADES = {
         "name": "Enhanced Thrusters",
         "effects": tuple(f"+{THRUST_INCREASE_PER_LEVEL * level:.0%} thrust acceleration"
                          for level in range(1, MAX_UPGRADE_LEVEL + 1)),
+        "max_level": MAX_UPGRADE_LEVEL,
+    },
+    "larger_bullets": {
+        "name": "Larger Bullets",
+        "effects": tuple(f"+{BULLET_RADIUS_PER_LEVEL * level:.0%} bullet radius"
+                         for level in range(1, MAX_UPGRADE_LEVEL + 1)),
+        "max_level": MAX_UPGRADE_LEVEL,
+    },
+    "heavy_bullets": {
+        "name": "Heavy Bullets",
+        "effects": tuple(f"+{BULLET_DAMAGE_PER_LEVEL * level:.0%} bullet damage"
+                         for level in range(1, MAX_UPGRADE_LEVEL + 1)),
+        "max_level": MAX_UPGRADE_LEVEL,
+    },
+    "ricochet": {
+        "name": "Ricochet",
+        "effects": ("1 surface bounce", "2 surface bounces"),
+        "max_level": MAX_UPGRADE_LEVEL,
+    },
+    "explosive_rounds": {
+        "name": "Explosive Rounds",
+        "effects": tuple(f"{radius} px blast radius" for radius in EXPLOSION_RADII[1:]),
         "max_level": MAX_UPGRADE_LEVEL,
     },
 }
@@ -60,8 +86,14 @@ def effective_stats(levels: dict[str, int]) -> dict[str, int | float]:
     hull_level = levels.get("reinforced_hull", 0)
     rapid_fire_level = levels.get("rapid_fire", 0)
     thruster_level = levels.get("enhanced_thrusters", 0)
+    size_level = levels.get("larger_bullets", 0)
+    damage_level = levels.get("heavy_bullets", 0)
     return {
         "max_health": round(STARTING_HEALTH * (1 + HULL_HEALTH_PER_LEVEL * hull_level)),
         "bullet_cooldown": round(BULLET_COOLDOWN * (1 - RAPID_FIRE_REDUCTION_PER_LEVEL * rapid_fire_level)),
         "thrust": THRUST * (1 + THRUST_INCREASE_PER_LEVEL * thruster_level),
+        "bullet_radius": round(BULLET_RADIUS * (1 + BULLET_RADIUS_PER_LEVEL * size_level)),
+        "bullet_damage": round(BULLET_DAMAGE * (1 + BULLET_DAMAGE_PER_LEVEL * damage_level)),
+        "bullet_bounces": levels.get("ricochet", 0),
+        "explosion_radius": EXPLOSION_RADII[levels.get("explosive_rounds", 0)],
     }

@@ -99,7 +99,8 @@ class Game:
     def game_objects(self, arena: ArenaLayout) -> None:
         """Create players, obstacles and sprite groups from the arena layout."""
         if hasattr(self, "players"):
-            for group in (self.players, self.obstacles, self.hazards, self.bullets, self.fuel_cans):
+            for group in (self.players, self.obstacles, self.hazards, self.bullets,
+                          self.fuel_cans, self.explosions):
                 for sprite in group:
                     sprite.kill()
 
@@ -129,6 +130,7 @@ class Game:
             self.hazards.add(Hazard(rect))
         self.bullets = pygame.sprite.Group()
         self.fuel_cans = pygame.sprite.Group()
+        self.explosions = pygame.sprite.Group()
 
         self.all_sprites = pygame.sprite.Group()
         self.all_sprites.add(self.obstacles, self.hazards, self.players)
@@ -164,6 +166,9 @@ class Game:
                     self.start_new_round()
             return
 
+        # Impact flashes can expire during the winner announcement, but not
+        # while the upgrade menu has paused the game.
+        self.explosions.update()
         winner_time = self.game_events.get_game_winner_time()
         if winner_time is not None:
             self.handle_winner_time(winner_time)
@@ -184,14 +189,14 @@ class Game:
 
         if self.game_events.get_game_winner_time() is None:
             obstacle_count = len(self.obstacles)
-            self.bullets.update(self.players, self.obstacles, self.game_events)
+            self.bullets.update(self.players, self.obstacles, self.game_events, self.explosions)
             if len(self.obstacles) != obstacle_count:
                 # Keep the seeded layout intact; prepare fuel from live rectangles.
                 self.fuel_positions = get_fuel_positions(
                     self.arena, [obstacle.rect for obstacle in self.obstacles],
                 )
 
-        self.all_sprites.add(self.bullets)
+        self.all_sprites.add(self.bullets, self.explosions)
         winner_time = self.game_events.get_game_winner_time()
         if winner_time is None:
             self.spawn_fuel()

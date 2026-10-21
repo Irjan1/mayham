@@ -29,8 +29,11 @@ THRUST = 0.1
 
 #bullet
 BULLETSPEED = 8.1
+BULLET_RADIUS = 4
 BULLET_DAMAGE = 20
 BULLET_COOLDOWN = 300
+EXPLOSION_RADII = (0, 48, 72)
+EXPLOSION_LIFETIME = 180  # milliseconds; damage happens only at impact
 
 WALL_DAMAGE = 0
 

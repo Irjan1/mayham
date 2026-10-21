@@ -98,15 +98,43 @@ next round starts immediately after the announcement.
 | Reinforced Hull | +20% maximum health | +40% maximum health |
 | Rapid Fire | 15% shorter shooting cooldown | 30% shorter shooting cooldown |
 | Enhanced Thrusters | +15% thrust acceleration | +30% thrust acceleration |
+| Larger Bullets | +25% radius (5 px) | +50% radius (6 px) |
+| Heavy Bullets | +20% damage (24) | +40% damage (28) |
+| Ricochet | 1 surface bounce | 2 surface bounces |
+| Explosive Rounds | 48 px blast radius | 72 px blast radius |
 
 Each upgrade stops at level 2. Each player keeps their own levels for the whole game
 session, even after winning later rounds. New rounds start at the upgraded maximum
-health. Gravity, rotation, fuel consumption and bullet damage stay unchanged.
+health. Gravity, rotation and fuel consumption stay unchanged. Three distinct cards
+are randomly sampled from the seven upgrades, excluding cards already at level 2.
 
 Stats are calculated from the original values each round, so bonuses do not compound.
 Restarting the application or constructing a new `Game` resets upgrade levels.
 Upgrade definitions, eligibility and stat calculations live in `src/upgrades.py`;
 the selection screen only renders cards. No upgrade rarity or pickup system is added.
+
+## Projectile behavior
+
+New bullets copy their shooter's size, damage, bounce count and explosion radius.
+All four projectile upgrades combine, and existing bullets keep the stats they had
+when fired. The base bullet radius is 4 px and its damage is 20.
+
+Bullets move in steps of at most one pixel, checking solid obstacles before players.
+Ricochets use circular hitboxes and surface normals. Each contacted surface costs
+one bounce; hitting two arena walls at a corner costs two. Once bounces run out,
+the next surface hit ends the shot. Every impact on a destructible block counts as
+one hit, including a bounce that breaks the block. Heavy Bullets do not change the
+three-hit durability. Spikes remain transparent to projectiles.
+
+An explosive bullet bounces while ricochets remain, then explodes on a terminal
+surface impact or any opposing-player hit. The blast deals the bullet's damage
+once to each opposing player whose circle touches it, replacing direct-hit damage.
+Heavy Bullets also strengthen blasts. The shooter is immune, blasts pass through
+cover, and nearby blocks take no splash damage. A short orange ring marks the blast;
+its 180 ms lifetime affects only drawing, never damage.
+
+Projectile size/damage bonuses are in `src/upgrades.py`. Base radius/damage,
+explosion radii and flash lifetime are in `config.py` for balancing.
 
 ## Implementation
 

@@ -67,7 +67,9 @@ class UpgradeRoundTests(unittest.TestCase):
                 loser = game.player1 if loser_name == 'Player1' else game.player2
                 self.finish_round(game, loser)
                 self.assertEqual(game.upgrade_player, loser_name)
-                self.assertEqual(set(game.upgrade_choices), set(UPGRADES))
+                self.assertEqual(len(game.upgrade_choices), 3)
+                self.assertEqual(len(set(game.upgrade_choices)), 3)
+                self.assertTrue(set(game.upgrade_choices).issubset(UPGRADES))
                 self.assertEqual(game.arena_seed, 42)
                 self.assertTrue(all(level == 0 for levels in game.upgrade_levels.values()
                                     for level in levels.values()))
@@ -137,11 +139,13 @@ class UpgradeRoundTests(unittest.TestCase):
 
     def test_upgrades_persist_when_upgraded_player_wins_later(self):
         game = Game(seed=42, fixed_arena=True)
-        self.finish_round(game, game.player2)
+        with patch('main.choose_upgrade_offers', return_value=['reinforced_hull', 'rapid_fire', 'ricochet']):
+            self.finish_round(game, game.player2)
         self.choose_card(game, 'reinforced_hull')
         self.assertEqual(game.player2.needs.health, 120)
         self.assertEqual(game.player1.needs.health, 100)
-        self.finish_round(game, game.player1)
+        with patch('main.choose_upgrade_offers', return_value=['rapid_fire', 'ricochet', 'larger_bullets']):
+            self.finish_round(game, game.player1)
         self.choose_card(game, 'rapid_fire')
         self.assertEqual(game.player2.needs.max_health, 120)
         self.assertEqual(game.player2.needs.health, 120)
@@ -153,7 +157,8 @@ class UpgradeRoundTests(unittest.TestCase):
 
     def test_maxed_card_is_excluded_and_remaining_keys_are_validated(self):
         game = Game(seed=42, fixed_arena=True)
-        game.upgrade_levels['Player2']['reinforced_hull'] = 2
+        game.upgrade_levels['Player2'] = {upgrade_id: 2 for upgrade_id in UPGRADES}
+        game.upgrade_levels['Player2'].update(rapid_fire=0, enhanced_thrusters=0)
         self.finish_round(game, game.player2)
         self.assertEqual(set(game.upgrade_choices), {'rapid_fire', 'enhanced_thrusters'})
         pygame.event.post(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_3))
@@ -222,7 +227,8 @@ class UpgradeRoundTests(unittest.TestCase):
     def test_selected_max_level_card_keeps_the_offered_level_on_screen(self):
         game = Game(seed=42, fixed_arena=True)
         game.upgrade_levels['Player2']['reinforced_hull'] = 1
-        self.finish_round(game, game.player2)
+        with patch('main.choose_upgrade_offers', return_value=['reinforced_hull', 'ricochet', 'heavy_bullets']):
+            self.finish_round(game, game.player2)
         game.select_upgrade(game.upgrade_choices.index('reinforced_hull'))
         self.assertEqual(game.upgrade_levels['Player2']['reinforced_hull'], 2)
         self.assertEqual(game.upgrade_screen.levels['reinforced_hull'], 1)

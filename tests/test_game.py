@@ -125,7 +125,8 @@ class GameSetupTests(unittest.TestCase):
             game.handle_winner_time(winner_time)
         self.assertEqual(game.arena_seed, 42)
         with patch('pygame.time.get_ticks', return_value=winner_time + round_delay):
-            game.handle_winner_time(winner_time)
+            with patch('main.choose_upgrade_offers', return_value=['rapid_fire', 'ricochet', 'heavy_bullets']):
+                game.handle_winner_time(winner_time)
             self.assertEqual(game.upgrade_player, "Player2")
             game.select_upgrade(game.upgrade_choices.index('rapid_fire'))
         next_round_time = winner_time + round_delay + game.upgrade_confirmation_delay

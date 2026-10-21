@@ -74,15 +74,15 @@ class EnvironmentTests(unittest.TestCase):
         self.assertEqual(first.hits_remaining, DESTRUCTIBLE_HITS - 1)
         self.assertEqual(second.hits_remaining, DESTRUCTIBLE_HITS)
 
-    def test_bullet_that_hit_player_does_not_also_damage_a_block(self):
+    def test_blocking_obstacle_takes_priority_over_overlapping_player(self):
         owner, target = Player1(100, 100), Player2(340, 240)
         block = Obstacle(300, 200, (80, 80), OBSTACLE_COLOR, destructible=True)
         bullet = Bullet(target.x, target.y, 0, owner)
         bullet.vx = bullet.vy = 0
         bullet.update([owner, target], pygame.sprite.Group(block), GameEvents())
 
-        self.assertEqual(target.needs.health, 100 - BULLET_DAMAGE)
-        self.assertEqual(block.hits_remaining, DESTRUCTIBLE_HITS)
+        self.assertEqual(target.needs.health, 100)
+        self.assertEqual(block.hits_remaining, DESTRUCTIBLE_HITS - 1)
 
     def test_spike_contact_uses_circle_and_awards_opponent_once(self):
         game = Game(seed=42, fixed_arena=True)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import pygame
 
-from config import BULLET_DAMAGE, WALL_DAMAGE
+from config import WALL_DAMAGE
 
 
 class GameEvents:
@@ -29,11 +29,16 @@ class GameEvents:
 
     def bullet_hit_player(self, bullet, player) -> None:
         """Update player health when hit by a bullet."""
-        player.needs.health = max(0, player.needs.health - BULLET_DAMAGE)
+        self.damage_player(player, bullet.damage, bullet.owner)
         bullet.kill()
 
-        if player.needs.health == 0 and player.is_alive:
-            self.player_died(player, bullet.owner)
+    def damage_player(self, player, damage, owner) -> None:
+        """Apply projectile or blast damage using the same health and scoring rules."""
+        if not player.is_alive:
+            return
+        player.needs.health = max(0, player.needs.health - damage)
+        if player.needs.health == 0:
+            self.player_died(player, owner)
 
     def wall_or_obstacle_damage(self, player, killer) -> None:
         """Damage a player after hitting a wall or obstacle."""

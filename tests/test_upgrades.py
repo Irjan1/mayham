@@ -4,7 +4,7 @@ import random
 import unittest
 from unittest.mock import patch
 
-from config import BULLET_COOLDOWN, STARTING_HEALTH, THRUST
+from config import BULLET_COOLDOWN, BULLET_DAMAGE, BULLET_RADIUS, STARTING_HEALTH, THRUST
 from src.upgrades import (
     UPGRADES, apply_upgrade, choose_upgrade_offers, create_upgrade_levels, effective_stats,
 )
@@ -22,6 +22,8 @@ class UpgradeRulesTests(unittest.TestCase):
         levels = create_upgrade_levels()
         self.assertEqual(effective_stats(levels), {
             'max_health': STARTING_HEALTH, 'bullet_cooldown': BULLET_COOLDOWN, 'thrust': THRUST,
+            'bullet_radius': BULLET_RADIUS, 'bullet_damage': BULLET_DAMAGE,
+            'bullet_bounces': 0, 'explosion_radius': 0,
         })
         for level, expected_health, expected_cooldown, expected_thrust in (
             (1, 120, 255, 0.115), (2, 140, 210, 0.13),
@@ -32,12 +34,18 @@ class UpgradeRulesTests(unittest.TestCase):
                 self.assertEqual(stats['max_health'], expected_health)
                 self.assertEqual(stats['bullet_cooldown'], expected_cooldown)
                 self.assertAlmostEqual(stats['thrust'], expected_thrust)
+                self.assertEqual(stats['bullet_radius'], 4 + level)
+                self.assertEqual(stats['bullet_damage'], 20 + 4 * level)
+                self.assertEqual(stats['bullet_bounces'], level)
+                self.assertEqual(stats['explosion_radius'], (0, 48, 72)[level])
 
     def test_each_upgrade_changes_only_its_own_stat(self):
         base = effective_stats(create_upgrade_levels())
         for upgrade_id, changed_stat in (
             ('reinforced_hull', 'max_health'), ('rapid_fire', 'bullet_cooldown'),
             ('enhanced_thrusters', 'thrust'),
+            ('larger_bullets', 'bullet_radius'), ('heavy_bullets', 'bullet_damage'),
+            ('ricochet', 'bullet_bounces'), ('explosive_rounds', 'explosion_radius'),
         ):
             with self.subTest(upgrade=upgrade_id):
                 levels = create_upgrade_levels()
@@ -62,14 +70,17 @@ class UpgradeRulesTests(unittest.TestCase):
         levels = create_upgrade_levels()
         rng = random.Random(42)
         choices = choose_upgrade_offers(levels, rng)
-        self.assertEqual(set(choices), set(UPGRADES))
+        self.assertEqual(len(UPGRADES), 7)
+        self.assertEqual(len(choices), 3)
+        self.assertTrue(set(choices).issubset(UPGRADES))
         self.assertEqual(len(choices), len(set(choices)))
         levels['reinforced_hull'] = 2
         choices = choose_upgrade_offers(levels, rng)
-        self.assertEqual(set(choices), {'rapid_fire', 'enhanced_thrusters'})
-        levels['rapid_fire'] = 2
-        self.assertEqual(choose_upgrade_offers(levels, rng), ['enhanced_thrusters'])
-        levels['enhanced_thrusters'] = 2
+        self.assertNotIn('reinforced_hull', choices)
+        levels = {upgrade_id: 2 for upgrade_id in UPGRADES}
+        levels['ricochet'] = 1
+        self.assertEqual(choose_upgrade_offers(levels, rng), ['ricochet'])
+        levels['ricochet'] = 2
         self.assertEqual(choose_upgrade_offers(levels, rng), [])
 
     def test_offers_support_sampling_from_a_larger_pool(self):
