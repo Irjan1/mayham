@@ -24,7 +24,7 @@ FUEL_SIZE = (30, 30)
 
 PLAYER_RADIUS = 18
 
-GRAVITY = 0.02
+GRAVITY = 0.025
 THRUST = 0.1
 
 #bullet
@@ -38,9 +38,9 @@ EXPLOSION_LIFETIME = 180  # milliseconds; damage happens only at impact
 WALL_DAMAGE = 0
 
 #needs
-STARTING_FUEL = 100
+STARTING_FUEL = 50 # after some testing low starting fuel makes the game feel more tactical
 STARTING_HEALTH = 100
-FUEL_COOLDOWN = 200
+FUEL_COOLDOWN = 150 # having less fuel and more common fuel cans makes the players have to refuel
 
 
-TITLE = "OBLIG 3 MAYHAM"
+TITLE = "MAYHAM"

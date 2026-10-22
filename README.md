@@ -11,7 +11,7 @@ Players battle in a small arena using physics-based movement, projectiles, and l
 - Two-player local multiplayer
 - A new procedural arena each round
 - Open, corridor and scattered room styles with L-shaped and U-shaped cover
-- Red spike zones and tan destructible blocks in some rooms
+- Steel obstacles, copper destructible cover and red-tipped spike zones
 - Rocket movement with gravity and thrust
 - Circular player hitboxes and obstacle collision detection
 - Projectiles, health, and damage
@@ -47,6 +47,12 @@ Run the game:
 
 `python main.py`
 
+The main menu opens first. Use Up/Down and Enter to start Local Multiplayer,
+read Controls, or Quit. Escape returns from Controls. Seed, fixed-arena and style
+options passed at launch apply when multiplayer starts. Starting multiplayer creates
+a fresh match with zero scores and no upgrades. Constructing `Game(...)` directly
+still prepares a round without opening the menu or starting a loop.
+
 ## Arena seeds and previews
 
 A starting seed, such as `python main.py --seed 42`, reproduces the match's arena
@@ -66,7 +72,7 @@ use `python main.py --seed 42 --style corridors` (`open` and `scattered` also wo
 The terminal prints both the seed and style. The same seed and style reproduce a
 layout with the current generator version; changing generation rules may change it.
 
-White obstacles are permanent. Tan blocks break after three bullets, with cracks
+Slate steel obstacles are permanent. Copper cover with amber stripes breaks after three bullets, with cracks
 showing damage. Each rectangular part of a grouped shape can be destroyed separately.
 Red spike zones kill on contact and award the opponent the round, like a lethal crash.
 Safe routes and fuel placement avoid these zones. Breaking blocks opens new fuel
@@ -186,6 +192,35 @@ size, cloud and ring settings to tune individual features. To add a style, write
 one drawing function taking `(surface, rng)` and register its name in
 `STYLE_DRAWERS`, `STYLE_WEIGHTS` and `STAR_DENSITY`. Use the supplied RNG and keep
 all drawing in this module so generation stays reproducible.
+
+## Industrial artwork and menu
+
+`src/visual_style.py` groups steel, copper cover, spike and menu settings separately.
+Change palettes, shade variation, patch size, grain, panel spacing, rivets, warning
+stripes, crack colors or menu typography here. Background settings remain exclusively
+in `src/background.py`; physics and damage values remain in `config.py`.
+
+Block drawing is in `src/block_art.py`. Its layered patches, fine grain and scuffs
+use many shades of the same metal color, with restrained seams and bevels around
+connected structures. Copper cover has vents and amber caution stripes before any
+damage. One hit adds branching cracks; two hits expose dark machinery beneath a
+wider fracture. Three hits still remove the block and emit the existing debris.
+Artwork is cached when a block is created and replaced only when it takes damage.
+A private RNG based on its rectangle makes wear repeatable without consuming
+gameplay randomness. The legacy obstacle color argument is retained for callers;
+gameplay block palettes now come from `visual_style.py`.
+
+Spike drawing is independent in `src/hazard_art.py`: steel teeth, shaded faces,
+red tips and a dark mounting rail. Editing block art does not require touching
+spikes. All artwork stays inside the original sprite rectangles. Arena preview
+diagrams keep their simple white/tan block colors for checking generation geometry.
+
+`src/menu.py` owns menu selection, help navigation and drawing. It caches one
+background from the existing generator and reads key bindings from the player
+classes. `main.run_application()` finishes menu navigation before constructing a
+fresh `Game` and entering its existing loop. To add a future menu option, add a
+label/action pair to `MENU_OPTIONS` and handle its action in `run_application()`.
+No new game modes or return-to-menu behavior during combat are implemented.
 
 ## Implementation
 

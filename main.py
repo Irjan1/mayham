@@ -22,6 +22,7 @@ from src.background import generate_background
 from src.effects import ParticleEffects
 from src.gui import NeedsDisplay, Scoreboard, UpgradeSelection, WinnerAnnouncement
 from src.geometry import circle_intersects_rect
+from src.menu import MainMenu
 from src.objects import Fuel, Hazard, Obstacle
 from src.player import Player1, Player2
 from src.upgrades import apply_upgrade, choose_upgrade_offers, create_upgrade_levels
@@ -293,11 +294,40 @@ class Game:
         pygame.display.flip()
 
 
-if __name__ == "__main__":
+def run_application(seed=None, fixed_arena=False, style=None):
+    """Finish menu navigation before handing control to the existing game loop."""
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption(TITLE)
+    menu = MainMenu(screen.get_size(), seed if seed is not None else 0)
+    clock = pygame.time.Clock()
+    action = None
+    while action not in ('multiplayer', 'quit'):
+        clock.tick(FPS)
+        for event in pygame.event.get():
+            action = menu.handle_event(event)
+            if action in ('multiplayer', 'quit'):
+                break
+        if action not in ('multiplayer', 'quit'):
+            menu.draw(screen)
+            pygame.display.flip()
+    if action == 'multiplayer':
+        # Scores are shared by GameEvents; only a new match resets them.
+        GameEvents.player_scores.update(Player1=0, Player2=0)
+        game = Game(seed=seed, fixed_arena=fixed_arena, style=style)
+        game.run()
+    else:
+        pygame.quit()
+
+
+def main():
     parser = argparse.ArgumentParser(description="Mayham: two-player rocket combat")
     parser.add_argument("--seed", type=int, help="First arena seed; later rounds increment it")
     parser.add_argument("--fixed-arena", action="store_true", help="Use the original room")
     parser.add_argument("--style", choices=ARENA_STYLES, help="Choose a room style")
     args = parser.parse_args()
-    game = Game(seed=args.seed, fixed_arena=args.fixed_arena, style=args.style)
-    game.run()
+    run_application(seed=args.seed, fixed_arena=args.fixed_arena, style=args.style)
+
+
+if __name__ == "__main__":
+    main()

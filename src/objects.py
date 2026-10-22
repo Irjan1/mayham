@@ -17,33 +17,28 @@ import pygame
 import math
 from config import (
     WIDTH, HEIGHT, BULLETSPEED, BULLET_RADIUS, BULLET_DAMAGE,
-    DESTRUCTIBLE_COLOR, DESTRUCTIBLE_HITS, HAZARD_COLOR, EXPLOSION_LIFETIME,
+    DESTRUCTIBLE_HITS, EXPLOSION_LIFETIME,
 )
+from src.block_art import create_block_surface
 from src.geometry import circle_rect_contact
+from src.hazard_art import draw_hazard
 
 class Obstacle(pygame.sprite.Sprite):
     """A static rectangular obstacle that ships can collide with."""
 
     def __init__(self, x: int, y: int, size: tuple[int, int], color: tuple[int, int, int],
                  destructible: bool = False, effects=None):
-        """Crate the obstacle at the given position with given size and color"""
+        """Create an obstacle; keep the old color argument for existing callers."""
         super().__init__()
 
         self.destructible = destructible
         self.effects = effects
         self.hits_remaining = DESTRUCTIBLE_HITS if destructible else 0
-        self.image = pygame.Surface(size)
-        self.image.fill(DESTRUCTIBLE_COLOR if destructible else color)
-        border = (145, 105, 55) if destructible else (170, 185, 200)
-        pygame.draw.rect(self.image, border, self.image.get_rect(), 1)
-        if destructible and min(size) >= 12:
-            for corner_x, corner_y in ((3, 3), (size[0] - 5, 3), (3, size[1] - 5),
-                                       (size[0] - 5, size[1] - 5)):
-                pygame.draw.rect(self.image, (245, 205, 130), (corner_x, corner_y, 2, 2))
-        self.rect = self.image.get_rect(topleft=(x, y))
+        self.rect = pygame.Rect((x, y), size)
+        self.image = create_block_surface(self.rect, destructible)
 
     def take_bullet_hit(self) -> None:
-        """Three hits break a tan block; white obstacles remain permanent."""
+        """Three hits break cover; reinforced obstacles remain permanent."""
         if not self.destructible:
             return
         self.hits_remaining -= 1
@@ -52,24 +47,8 @@ class Obstacle(pygame.sprite.Sprite):
                 self.effects.debris(self.rect)
             self.kill()
             return
-        width, height = self.image.get_size()
-        # Cracks accumulate, making the remaining durability visible.
-        for crack in range(DESTRUCTIBLE_HITS - self.hits_remaining):
-            x = width * (crack + 1) // DESTRUCTIBLE_HITS
-            pygame.draw.line(self.image, "black", (x, 0), (width // 2, height), 3)
-
-
-def draw_hazard(surface: pygame.Surface, rect: pygame.Rect) -> None:
-    """Draw the same red spike warning in gameplay and arena previews."""
-    pygame.draw.rect(surface, (90, 15, 25), rect)
-    for x in range(rect.left, rect.right, 16):
-        pygame.draw.polygon(surface, HAZARD_COLOR, [
-            (x, rect.bottom - 1), (min(x + 8, rect.right - 1), rect.top),
-            (min(x + 16, rect.right - 1), rect.bottom - 1),
-        ])
-        pygame.draw.line(surface, (255, 175, 145),
-                         (x, rect.bottom - 2), (min(x + 8, rect.right - 1), rect.top + 1))
-    pygame.draw.rect(surface, HAZARD_COLOR, rect, 2)
+        self.image = create_block_surface(self.rect, destructible=True,
+                                          damage=DESTRUCTIBLE_HITS - self.hits_remaining)
 
 
 class Hazard(pygame.sprite.Sprite):
