@@ -81,7 +81,7 @@ class UpgradeRoundTests(unittest.TestCase):
         game.bullets.add(bullet)
         game.fuel_cans.add(fuel)
         game.all_sprites.add(bullet, fuel)
-        game.time_from_fuel_spawn = -100000
+        game.fuel_spawn_at = -100000
         self.finish_round(game, game.player2)
         player = game.player1
         player_state = (player.x, player.y, player.vx, player.vy, player.needs.health,
@@ -100,9 +100,9 @@ class UpgradeRoundTests(unittest.TestCase):
         self.assertEqual((bullet.x, bullet.y), bullet_position)
         self.assertIn(fuel, game.fuel_cans)
         fuel.kill()
-        game.spawn_fuel()
+        game.update_fuel()
         self.assertEqual(len(game.fuel_cans), 0)
-        self.assertEqual(game.time_from_fuel_spawn, -100000)
+        self.assertEqual(game.fuel_spawn_at, -100000)
         self.assertEqual(game.game_events.get_game_winner_time(), winner_time)
         self.assertEqual(game.fuel_rng.getstate(), fuel_state)
         self.assertEqual(game.upgrade_rng.getstate(), offer_state)

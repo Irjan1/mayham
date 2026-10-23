@@ -3,34 +3,36 @@
 Background settings stay in background.py. Gameplay values stay in config.py.
 """
 
-# Reinforced steel: patches and grain vary these shades, keeping one metal hue.
-METAL_PALETTE = ((61, 72, 82), (69, 80, 90), (76, 87, 97), (55, 66, 76))
-METAL_EDGE = (96, 108, 119)
-METAL_SHADOW = (28, 35, 43)
-METAL_SEAM = (35, 43, 52)
-METAL_RIVET = (125, 135, 142)
+# Shared reinforced steel: a dim face gradient, broad wear and scattered grain.
+METAL_PALETTE = ((57, 68, 79), (64, 75, 86), (69, 80, 90), (60, 70, 81))
+METAL_EDGE = (91, 104, 116)
+METAL_SHADOW = (25, 32, 40)
+METAL_SEAM = (33, 41, 50)
+METAL_RIVET = (112, 124, 134)
+METAL_SHADE_VARIATION = 7
 BLOCK_BORDER = 2
-PANEL_SPACING = 48
-PATCH_SIZE = (7, 19)
-PATCH_SHADE_VARIATION = 12
-GRAIN_SPACING = 3
-GRAIN_SHADE_VARIATION = 7
-SCRATCH_AREA = 450  # One short wear mark per this many square pixels.
+PANEL_SPACING = 64
+METAL_WEAR_SCALE = 24
+METAL_WEAR_OPACITY = 12
+GRAIN_AREA = 35  # One short, randomly placed grain mark per this many pixels.
+GRAIN_SHADE_VARIATION = 4
+SCRATCH_AREA = 900
 RIVET_RADIUS = 1
 
-# Weaker copper cover: recognizable before the first hit.
-COVER_PALETTE = ((108, 73, 44), (124, 86, 49), (116, 78, 44), (98, 65, 39))
-COVER_EDGE = (157, 113, 66)
-COVER_SHADOW = (49, 33, 24)
-COVER_SEAM = (65, 43, 29)
-COVER_RIVET = (176, 133, 80)
-WARNING_AMBER = (188, 139, 54)
-WARNING_DARK = (44, 33, 22)
-WARNING_HEIGHT = 6
-WARNING_SPACING = 12
-CRACK_COLOR = (19, 16, 14)
-CRACK_EDGE = (179, 126, 70)
-EXPOSED_INTERIOR = (35, 29, 25)
+# Destructible cover uses the same steel beneath patchy, dark red-brown corrosion.
+RUST_PALETTE = ((76, 42, 32), (88, 48, 35), (99, 53, 36),
+                (66, 38, 31), (104, 60, 41))
+RUST_PATCH_SCALE = 20
+RUST_TEXTURE_SCALE = 2  # Paint corrosion at half resolution, then enlarge once.
+RUST_THRESHOLD = 140
+RUST_ALPHA_SCALE = 5
+RUST_MAX_ALPHA = 235
+RUST_SEAM_WIDTH = 8
+RUST_SEAM_BOOST = 30
+RUST_PIT_CHANCE = 0.015
+CRACK_COLOR = (15, 17, 19)
+CRACK_EDGE = (123, 87, 64)
+EXPOSED_INTERIOR = (27, 29, 32)
 
 # Spikes: steel teeth, red tips and a recessed red mounting bed.
 SPIKE_BED = (68, 20, 28)

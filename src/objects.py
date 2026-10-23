@@ -18,8 +18,10 @@ import math
 from config import (
     WIDTH, HEIGHT, BULLETSPEED, BULLET_RADIUS, BULLET_DAMAGE,
     DESTRUCTIBLE_HITS, EXPLOSION_LIFETIME,
+    FUEL_SIZE, FUEL_COLOR, FUEL_WARNING_MIN_ALPHA, FUEL_WARNING_MAX_ALPHA,
+    FUEL_WARNING_PULSE_HZ,
 )
-from src.block_art import create_block_surface
+from src.block_art import create_block_surface, draw_block_damage
 from src.geometry import circle_rect_contact
 from src.hazard_art import draw_hazard
 
@@ -35,7 +37,8 @@ class Obstacle(pygame.sprite.Sprite):
         self.effects = effects
         self.hits_remaining = DESTRUCTIBLE_HITS if destructible else 0
         self.rect = pygame.Rect((x, y), size)
-        self.image = create_block_surface(self.rect, destructible)
+        self.undamaged_image = create_block_surface(self.rect, destructible)
+        self.image = self.undamaged_image
 
     def take_bullet_hit(self) -> None:
         """Three hits break cover; reinforced obstacles remain permanent."""
@@ -47,8 +50,8 @@ class Obstacle(pygame.sprite.Sprite):
                 self.effects.debris(self.rect)
             self.kill()
             return
-        self.image = create_block_surface(self.rect, destructible=True,
-                                          damage=DESTRUCTIBLE_HITS - self.hits_remaining)
+        self.image = self.undamaged_image.copy()
+        draw_block_damage(self.image, DESTRUCTIBLE_HITS - self.hits_remaining)
 
 
 class Hazard(pygame.sprite.Sprite):
@@ -195,8 +198,30 @@ class Explosion(pygame.sprite.Sprite):
             self.kill()
 
 
+def create_fuel_warning_image():
+    """A hollow can and corner brackets distinguish the hologram from a pickup."""
+    image = pygame.Surface(FUEL_SIZE, pygame.SRCALPHA)
+    width, height = FUEL_SIZE
+    pygame.draw.rect(image, FUEL_COLOR, (4, 8, width - 8, height - 10), 1, border_radius=3)
+    pygame.draw.rect(image, FUEL_COLOR, (7, 2, width // 3, 8), 1, border_radius=2)
+    pygame.draw.rect(image, FUEL_COLOR, (width - 11, 4, 5, 4), 1)
+    for x, dx in ((0, 1), (width - 1, -1)):
+        for y, dy in ((0, 1), (height - 1, -1)):
+            pygame.draw.lines(image, FUEL_COLOR, False,
+                              [(x, y + dy * 4), (x, y), (x + dx * 4, y)])
+    return image
+
+
+def draw_fuel_warning(screen, image, position, current_time):
+    """Pulse a cached, drawing-only surface. It never enters any sprite group."""
+    pulse = (1 + math.sin(math.tau * FUEL_WARNING_PULSE_HZ * current_time / 1000)) / 2
+    image.set_alpha(round(FUEL_WARNING_MIN_ALPHA + pulse *
+                          (FUEL_WARNING_MAX_ALPHA - FUEL_WARNING_MIN_ALPHA)))
+    screen.blit(image, position)
+
+
 class Fuel(pygame.sprite.Sprite):
-    """An orange canister, keeping the original pickup rectangle and collision rule."""
+    """An orange fuel canister."""
 
     def __init__(self, x: int, y: int, size: tuple[int, int], color: tuple[int, int, int]):
         super().__init__()

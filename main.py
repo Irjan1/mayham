@@ -12,7 +12,10 @@ import random
 
 import pygame
 
-from config import FPS, FUEL_COLOR, FUEL_SIZE, HEIGHT, OBSTACLE_COLOR, TITLE, WIDTH
+from config import (
+    FPS, FUEL_COLOR, FUEL_RESPAWN_DELAY, FUEL_SIZE, FUEL_WARNING_DURATION,
+    HEIGHT, OBSTACLE_COLOR, TITLE, WIDTH,
+)
 from src.arena import (
     ARENA_STYLES, ArenaLayout, choose_fuel_position, create_fixed_arena, generate_arena,
     get_fuel_positions,
@@ -23,7 +26,7 @@ from src.effects import ParticleEffects
 from src.gui import NeedsDisplay, Scoreboard, UpgradeSelection, WinnerAnnouncement
 from src.geometry import circle_intersects_rect
 from src.menu import MainMenu
-from src.objects import Fuel, Hazard, Obstacle
+from src.objects import Fuel, Hazard, Obstacle, create_fuel_warning_image, draw_fuel_warning
 from src.player import Player1, Player2
 from src.upgrades import apply_upgrade, choose_upgrade_offers, create_upgrade_levels
 
@@ -62,8 +65,7 @@ class Game:
         self.winner_show_delay = 200
         self.winner_choose_delay = 3000
 
-        self.fuel_spawn_time = 10000
-        self.time_from_fuel_spawn = pygame.time.get_ticks()
+        self.fuel_warning_image = create_fuel_warning_image()
 
         self.start_new_round()
 
@@ -99,7 +101,6 @@ class Game:
         self.fuel_rng = random.Random(self.arena_seed)
         self.game_objects(arena)
         self.background, self.background_style = generate_background(self.arena_seed, self.screen.get_size())
-        self.time_from_fuel_spawn = pygame.time.get_ticks()
 
     def game_objects(self, arena: ArenaLayout) -> None:
         """Create players, obstacles and sprite groups from the arena layout."""
@@ -143,6 +144,10 @@ class Game:
 
         self.all_sprites = pygame.sprite.Group()
         self.all_sprites.add(self.obstacles, self.hazards, self.players)
+        # A new arena clears any old reservation and starts its initial countdown.
+        self.fuel_state = 'waiting'
+        self.fuel_spawn_position = None
+        self.fuel_spawn_at = pygame.time.get_ticks() + max(0, FUEL_RESPAWN_DELAY)
 
     def run(self) -> None:
         """Running of the main game loop."""
@@ -209,28 +214,52 @@ class Game:
         self.all_sprites.add(self.bullets, self.explosions)
         winner_time = self.game_events.get_game_winner_time()
         if winner_time is None:
-            self.spawn_fuel()
+            self.update_fuel()
         else:
             self.handle_winner_time(winner_time)
 
-    def spawn_fuel(self) -> None:
-        """Spawn one fuel can if none exists and enough active-round time has passed."""
+    def update_fuel(self, current_time=None) -> None:
+        """Waiting -> warning -> active; collection begins a fresh countdown.
+
+        fuel_spawn_at is the only deadline, and is None while a can is active.
+        AI can read it and fuel_spawn_position without depending on the artwork.
+        """
         if self.upgrade_player is not None or self.game_events.get_game_winner_time() is not None:
             return
-        current_time = pygame.time.get_ticks()
+        if current_time is None:
+            current_time = pygame.time.get_ticks()
+        if self.fuel_cans:
+            self.fuel_state = 'active'
+            self.fuel_spawn_at = None
+            self.fuel_spawn_position = None
+            return
+        if self.fuel_state == 'active':
+            # Pickup removes the sprite during player.update, earlier this frame.
+            self.fuel_state = 'waiting'
+            self.fuel_spawn_at = current_time + max(0, FUEL_RESPAWN_DELAY)
 
-        if len(self.fuel_cans) == 0 and current_time - self.time_from_fuel_spawn > self.fuel_spawn_time:
-            position = choose_fuel_position(
+        warning_duration = max(0, min(FUEL_WARNING_DURATION, FUEL_RESPAWN_DELAY))
+        if self.fuel_state == 'waiting':
+            if current_time < self.fuel_spawn_at - warning_duration:
+                return
+            self.fuel_spawn_position = choose_fuel_position(
                 self.fuel_positions,
                 [(player.x, player.y) for player in self.players],
                 self.fuel_rng,
             )
-            if position is None:
+            if self.fuel_spawn_position is None:
                 return
-            fuel = Fuel(*position, FUEL_SIZE, FUEL_COLOR)
+            self.fuel_state = 'warning'
+            # If all sites were occupied, still give a full warning once one opens.
+            self.fuel_spawn_at = max(self.fuel_spawn_at, current_time + warning_duration)
+        if current_time >= self.fuel_spawn_at:
+            # Do not recheck player clearance: guarding an announced site is allowed.
+            fuel = Fuel(*self.fuel_spawn_position, FUEL_SIZE, FUEL_COLOR)
             self.fuel_cans.add(fuel)
             self.all_sprites.add(fuel)
-            self.time_from_fuel_spawn = current_time
+            self.fuel_state = 'active'
+            self.fuel_spawn_at = None
+            self.fuel_spawn_position = None
 
     def handle_winner_time(self, winner_time: int) -> None:
         """After the winner announcement, offer an upgrade or skip to the next round."""
@@ -274,6 +303,9 @@ class Game:
             return
 
         self.screen.blit(self.background, (0, 0))
+        if self.fuel_state == 'warning':
+            draw_fuel_warning(self.screen, self.fuel_warning_image,
+                              self.fuel_spawn_position, pygame.time.get_ticks())
         # Keep all particles behind rockets, bullets, cover, hazards and pickups.
         self.effects.draw(self.screen)
         self.all_sprites.draw(self.screen)

@@ -114,7 +114,7 @@ class MainMenu:
             'Destroy the other rocket to win the round.',
             'Hold thrust to accelerate. Thrust uses fuel; orange cans refill it.',
             'Hold shoot to fire; the weapon has a short cooldown.',
-            'Copper panels break after 3 hits. Red spikes kill on contact.',
+            'Rusty panels break after 3 hits. Red spikes kill on contact.',
             'After a loss, press 1 / 2 / 3 to choose an upgrade.',
             'Upgrades last for this match; each round brings a new arena.',
         )

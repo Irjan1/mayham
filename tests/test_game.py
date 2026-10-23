@@ -14,7 +14,10 @@ os.environ["SDL_AUDIODRIVER"] = "dummy"
 
 import pygame
 
-from config import BULLET_DAMAGE, FUEL_COLOR, FUEL_SIZE, STARTING_FUEL, STARTING_HEALTH, WALL_DAMAGE
+from config import (
+    BULLET_DAMAGE, FUEL_COLOR, FUEL_RESPAWN_DELAY, FUEL_SIZE, FUEL_WARNING_DURATION,
+    STARTING_FUEL, STARTING_HEALTH, WALL_DAMAGE,
+)
 from main import Game
 from src.arena import ArenaLayout, create_fixed_arena, generate_arena, validate_arena
 from src.game_events import GameEvents
@@ -137,7 +140,7 @@ class GameSetupTests(unittest.TestCase):
         self.assertEqual(GameEvents.get_scores(), {"Player1": 1, "Player2": 0})
         self.assertIsNone(game.game_events.get_game_winner())
         self.assertIsNone(game.game_events.get_game_winner_time())
-        self.assertEqual(game.time_from_fuel_spawn, next_round_time)
+        self.assertEqual(game.fuel_spawn_at, next_round_time + FUEL_RESPAWN_DELAY)
         for player in game.players:
             self.assertEqual(player.needs.health, STARTING_HEALTH)
             self.assertEqual(player.needs.fuel, STARTING_FUEL)
@@ -171,17 +174,18 @@ class GameSetupTests(unittest.TestCase):
 
     def test_fuel_timing_and_collection_are_preserved(self):
         game = Game(seed=42)
-        original_time = game.time_from_fuel_spawn
-        due_time = original_time + game.fuel_spawn_time + 1
-        with patch('pygame.time.get_ticks', return_value=due_time - 1):
-            game.spawn_fuel()
+        due_time = game.fuel_spawn_at
+        game.update_fuel(due_time - FUEL_WARNING_DURATION - 1)
+        self.assertEqual(game.fuel_state, 'waiting')
+        game.update_fuel(due_time - FUEL_WARNING_DURATION)
+        self.assertEqual(game.fuel_state, 'warning')
+        game.update_fuel(due_time - 1)
         self.assertEqual(len(game.fuel_cans), 0)
-        with patch('pygame.time.get_ticks', return_value=due_time):
-            game.spawn_fuel()
-            game.spawn_fuel()
+        game.update_fuel(due_time)
+        game.update_fuel(due_time)
 
         self.assertEqual(len(game.fuel_cans), 1)
-        self.assertEqual(game.time_from_fuel_spawn, due_time)
+        self.assertIsNone(game.fuel_spawn_at)
         fuel = next(iter(game.fuel_cans))
         self.assertIn(fuel, game.all_sprites)
         game.player1.x, game.player1.y = fuel.rect.center
@@ -207,20 +211,21 @@ class GameSetupTests(unittest.TestCase):
                 # The original 30x30 pickup has a circumscribed circle radius
                 # of about 21.2; with the ship's 18, contact ends near 39.2 px.
                 game.player1.pick_up_fuel(cans)
-                self.assertEqual(game.player1.needs.fuel, 60 if collected else 10)
+                self.assertEqual(game.player1.needs.fuel, 10 + STARTING_FUEL // 2 if collected else 10)
                 self.assertEqual(len(cans), 0 if collected else 1)
 
     def test_no_fuel_position_skips_spawn_and_allows_later_retry(self):
         game = Game(seed=42)
         positions = game.fuel_positions
         game.fuel_positions = []
-        due_time = game.time_from_fuel_spawn + game.fuel_spawn_time + 1
-        with patch('pygame.time.get_ticks', return_value=due_time):
-            game.spawn_fuel()
-            self.assertEqual(len(game.fuel_cans), 0)
-            self.assertNotEqual(game.time_from_fuel_spawn, due_time)
-            game.fuel_positions = positions
-            game.spawn_fuel()
+        due_time = game.fuel_spawn_at
+        game.update_fuel(due_time)
+        self.assertEqual(len(game.fuel_cans), 0)
+        self.assertEqual(game.fuel_state, 'waiting')
+        game.fuel_positions = positions
+        game.update_fuel(due_time)
+        self.assertEqual(game.fuel_state, 'warning')
+        game.update_fuel(due_time + FUEL_WARNING_DURATION)
         self.assertEqual(len(game.fuel_cans), 1)
 
     def test_both_players_can_thrust_and_shoot(self):

@@ -11,7 +11,7 @@ Players battle in a small arena using physics-based movement, projectiles, and l
 - Two-player local multiplayer
 - A new procedural arena each round
 - Open, corridor and scattered room styles with L-shaped and U-shaped cover
-- Steel obstacles, copper destructible cover and red-tipped spike zones
+- Steel obstacles, rusty destructible cover and red-tipped spike zones
 - Rocket movement with gravity and thrust
 - Circular player hitboxes and obstacle collision detection
 - Projectiles, health, and damage
@@ -72,7 +72,7 @@ use `python main.py --seed 42 --style corridors` (`open` and `scattered` also wo
 The terminal prints both the seed and style. The same seed and style reproduce a
 layout with the current generator version; changing generation rules may change it.
 
-Slate steel obstacles are permanent. Copper cover with amber stripes breaks after three bullets, with cracks
+Slate steel obstacles are permanent. Rusty cover breaks after three bullets, with cracks
 showing damage. Each rectangular part of a grouped shape can be destroyed separately.
 Red spike zones kill on contact and award the opponent the round, like a lethal crash.
 Safe routes and fuel placement avoid these zones. Breaking blocks opens new fuel
@@ -90,6 +90,31 @@ Previews show room style, obstacle rectangles, spikes, breakable blocks, player
 spawn circles and each arena's seed. A color legend appears below the grid.
 Fuel positions use the ship-reachable grid region, check the full pickup rectangle,
 and leave space around current player positions.
+
+## Fuel warnings and respawning
+
+A round starts with the original 10-second wait for its first fuel can. After
+collection, a fresh 10-second countdown begins; active fuel has no respawn timer.
+Seven seconds before a pickup appears, a pulsing, hollow orange can and corner
+brackets announce its position. The solid can becomes collectible at the deadline.
+The warning is only artwork and never enters the fuel/collision sprite groups.
+
+Timing settings are in `config.py`, in milliseconds: `FUEL_RESPAWN_DELAY` defaults
+to 10000 and `FUEL_WARNING_DURATION` to 7000. The warning duration is clamped to
+0–respawn delay; zero disables advance notice. `FUEL_WARNING_PULSE_HZ` and the
+`FUEL_WARNING_MIN_ALPHA`/`FUEL_WARNING_MAX_ALPHA` settings control the pulse.
+
+The existing reachable, obstacle-free, hazard-free candidates and player-clearance
+check select a location once when the warning starts. Moving onto the announced
+site does not move or cancel it. If no safe site is available, selection retries;
+once a site opens, it receives a full warning before spawning, extending that wait
+if needed. New rounds and arena replacement clear old warnings and fuel state.
+
+`Game.update_fuel(current_time=None)` advances the lifecycle. Its optional timestamp
+makes tests easy to run without waiting. Future AI can read `game.fuel_cans`,
+`game.fuel_state` (`waiting`, `warning`, `active`), `game.fuel_spawn_position` (the
+announced top-left position, otherwise `None`), and `game.fuel_spawn_at` (deadline,
+or `None` while fuel is active). These fields do not depend on drawing code.
 
 ## Between-round upgrades
 
@@ -146,7 +171,7 @@ explosion radii and flash lifetime are in `config.py` for balancing.
 ## Visual effects
 
 Thrust leaves a layered orange plume with a brief pale engine core; moving bullets leave dim amber trails,
-and solid impacts make small sparks. Breaking tan blocks scatters brief debris.
+and solid impacts make small sparks. Breaking rusty blocks scatters brief debris.
 Obstacle edging and highlighted red spikes make the different surfaces easier to read.
 Blue and red ships have finned silhouettes, cockpit detail and a visible rear nozzle,
 while orange fuel canisters have a handle, cap and fuel-drop symbol. Ship and fuel
@@ -195,20 +220,20 @@ all drawing in this module so generation stays reproducible.
 
 ## Industrial artwork and menu
 
-`src/visual_style.py` groups steel, copper cover, spike and menu settings separately.
-Change palettes, shade variation, patch size, grain, panel spacing, rivets, warning
-stripes, crack colors or menu typography here. Background settings remain exclusively
-in `src/background.py`; physics and damage values remain in `config.py`.
+`src/visual_style.py` groups metal/rust, spike and menu settings separately.
+Change metal shading, wear, grain, panel spacing, rivets, rust coverage, rust colors,
+crack colors or menu typography here. Background settings remain exclusively in
+`src/background.py`; physics and damage values remain in `config.py`.
 
-Block drawing is in `src/block_art.py`. Its layered patches, fine grain and scuffs
-use many shades of the same metal color, with restrained seams and bevels around
-connected structures. Copper cover has vents and amber caution stripes before any
-damage. One hit adds branching cracks; two hits expose dark machinery beneath a
-wider fracture. Three hits still remove the block and emit the existing debris.
-Artwork is cached when a block is created and replaced only when it takes damage.
-A private RNG based on its rectangle makes wear repeatable without consuming
-gameplay randomness. The legacy obstacle color argument is retained for callers;
-gameplay block palettes now come from `visual_style.py`.
+Both block types use the same steel renderer in `src/block_art.py`: dim plate
+shading, broad wear, scattered grain, subdued bevels, seams and rivets. Destructible
+cover adds dark red-brown corrosion and pitting, with surviving gray steel visible.
+There are no caution stripes or copper-only panel details. One hit adds branching
+cracks; two hits expose a dark interior beneath a wider fracture. Three hits still
+remove the block and emit the existing debris. Artwork is cached on creation; damage copies the undamaged panel and draws only
+its cracks, without regenerating metal or rust. A private rectangle-derived RNG makes wear repeatable
+without consuming gameplay randomness. The legacy obstacle color argument is
+retained for callers; gameplay block palettes come from `visual_style.py`.
 
 Spike drawing is independent in `src/hazard_art.py`: steel teeth, shaded faces,
 red tips and a dark mounting rail. Editing block art does not require touching

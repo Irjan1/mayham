@@ -46,8 +46,22 @@ class EnvironmentArtTests(unittest.TestCase):
             same = create_block_surface(block.rect, destructible=True)
             self.assertEqual(pygame.image.tobytes(cached, 'RGB'), pygame.image.tobytes(same, 'RGB'))
             block.take_bullet_hit()
-            self.assertEqual(paint.call_count, 2)
+            self.assertEqual(paint.call_count, 1)
+            self.assertIs(block.undamaged_image, cached)
             self.assertIsNot(block.image, cached)
+
+    def test_rust_reuses_the_steel_base_without_caution_stripes(self):
+        rect = pygame.Rect(100, 200, 180, 120)
+        steel = create_block_surface(rect)
+        with patch('src.block_art._draw_rust') as rust:
+            shared_base = create_block_surface(rect, destructible=True)
+        rust.assert_called_once()
+        self.assertEqual(pygame.image.tobytes(steel, 'RGB'), pygame.image.tobytes(shared_base, 'RGB'))
+        for damage in range(3):
+            rusty = create_block_surface(rect, destructible=True, damage=damage)
+            self.assertNotEqual(pygame.image.tobytes(steel, 'RGB'), pygame.image.tobytes(rusty, 'RGB'))
+            colors = {rusty.get_at((x, y))[:3] for x in range(rect.width) for y in range(rect.height)}
+            self.assertNotIn((188, 139, 54), colors)  # Former amber caution stripe.
 
     def test_spikes_keep_size_and_drawing_stays_inside_zone_and_clip(self):
         for size in ((1, 1), (8, 5), (112, 32), (200, 64)):
