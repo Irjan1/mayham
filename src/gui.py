@@ -10,7 +10,7 @@ Authors: Irjan Evertsen and Emil Olsen-Kristiansen
 
 from __future__ import annotations
 
-import pygame
+import pygame # type: ignore
 
 from config import HEIGHT, WIDTH
 from src.game_events import GameEvents

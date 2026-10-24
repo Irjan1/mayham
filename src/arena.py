@@ -7,7 +7,7 @@ Authors: Irjan Evertsen
 from dataclasses import dataclass, field
 import random
 
-import pygame
+import pygame # type: ignore
 
 from config import FUEL_SIZE, HEIGHT, OBSTACLE_SIZE, PLAYER_RADIUS, WIDTH
 from src.geometry import circle_intersects_rect

@@ -13,7 +13,7 @@ in pygame.sprite.Group objects. This enables Group.update and Group.draw later
 Authors: Irjan Evertsen and Emil Olsen-Kristiansen
 """
 
-import pygame
+import pygame # type: ignore
 import math
 from config import (
     WIDTH, HEIGHT, BULLETSPEED, BULLET_RADIUS, BULLET_DAMAGE,
@@ -29,12 +29,13 @@ class Obstacle(pygame.sprite.Sprite):
     """A static rectangular obstacle that ships can collide with."""
 
     def __init__(self, x: int, y: int, size: tuple[int, int], color: tuple[int, int, int],
-                 destructible: bool = False, effects=None):
+                 destructible: bool = False, effects=None, audio=None):
         """Create an obstacle; keep the old color argument for existing callers."""
         super().__init__()
 
         self.destructible = destructible
         self.effects = effects
+        self.audio = audio
         self.hits_remaining = DESTRUCTIBLE_HITS if destructible else 0
         self.rect = pygame.Rect((x, y), size)
         self.undamaged_image = create_block_surface(self.rect, destructible)
@@ -46,6 +47,8 @@ class Obstacle(pygame.sprite.Sprite):
             return
         self.hits_remaining -= 1
         if self.hits_remaining <= 0:
+            if self.audio is not None:
+                self.audio.play('block_break')
             if self.effects is not None:
                 self.effects.debris(self.rect)
             self.kill()
@@ -69,7 +72,7 @@ class Bullet(pygame.sprite.Sprite):
 
     def __init__(self, x: float, y: float, angle: float, owner: pygame.sprite.Sprite,
                  radius: int = BULLET_RADIUS, damage: int = BULLET_DAMAGE,
-                 bounces: int = 0, explosion_radius: int = 0, effects=None):
+                 bounces: int = 0, explosion_radius: int = 0, effects=None, audio=None):
         super().__init__()
         self.x = x
         self.y = y
@@ -82,6 +85,7 @@ class Bullet(pygame.sprite.Sprite):
         self.explosion_radius = explosion_radius
         self.finished = False
         self.effects = effects
+        self.audio = audio
 
         self.image = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
         color = "gold" if explosion_radius else "orange"
@@ -141,6 +145,9 @@ class Bullet(pygame.sprite.Sprite):
         """Separate and reflect inward motion, or report exhausted ricochets."""
         nx, ny = normal
         normal_speed = self.vx * nx + self.vy * ny
+        if self.audio is not None and (normal_speed < 0 or self.bounces_remaining == 0):
+            sound = 'cover_hit' if obstacle is not None and obstacle.destructible else 'metal_hit'
+            self.audio.play(sound)
         if self.effects is not None and (normal_speed < 0 or self.bounces_remaining == 0):
             # The separated center minus the radius lies on the contacted surface.
             position = (self.x + nx * (depth - self.radius),

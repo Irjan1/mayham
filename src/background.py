@@ -10,7 +10,7 @@ import math
 from pathlib import Path
 import random
 
-import pygame
+import pygame # type: ignore
 
 
 # Global fade: both controls run from 0 (black/invisible) to 1 (unfaded).

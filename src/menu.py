@@ -1,6 +1,6 @@
 """A small keyboard menu, separate from the game's round and upgrade state."""
 
-import pygame
+import pygame # type: ignore
 
 from src.background import generate_background
 from src.player import Player1, Player2

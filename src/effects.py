@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import math
 import random
 
-import pygame
+import pygame # type: ignore
 
 from config import DESTRUCTIBLE_COLOR, FPS
 

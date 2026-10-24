@@ -8,7 +8,7 @@ Player1 and Player2 inherit from Player and contain their own controls and the c
 """
 
 import math
-import pygame
+import pygame # type: ignore
 
 from config import (
     BULLET_COOLDOWN, BULLET_DAMAGE, BULLET_RADIUS, FUEL_COOLDOWN, GRAVITY, HEIGHT, PLAYER_RADIUS,
@@ -40,6 +40,7 @@ class Player(Ship):
         self.needs = Needs()
         self.is_alive = True
         self.effects = None
+        self.audio = None
 
         ## fuel cooldown makes the fuel drain less time per frame
         self.fuel_cooldown = FUEL_COOLDOWN
@@ -185,9 +186,11 @@ class Player(Ship):
             self.x, self.y, self.angle, self,
             radius=self.bullet_radius, damage=self.bullet_damage,
             bounces=self.bullet_bounces, explosion_radius=self.explosion_radius,
-            effects=self.effects,
+            effects=self.effects, audio=self.audio,
         )
         bullets.add(bullet)
+        if self.audio is not None:
+            self.audio.play('fire', source=self)
 
         self.last_shot = time
 
@@ -198,6 +201,8 @@ class Player(Ship):
         ## change this with needs object
         if fuel_touch:
             self.needs.add_fuel(STARTING_FUEL // 2)
+            if self.audio is not None:
+                self.audio.play('pickup', source=self)
 
 
     def update(self, keys, obstacles, players, bullets, fuel_cans, game_events) -> None:
@@ -279,7 +284,8 @@ class Player(Ship):
         if keys[self.controls["right"]]:
             self.angle -= self.rotation_speed
 
-        if keys[self.controls["up"]] and self.needs.has_fuel():
+        thrusting = keys[self.controls["up"]] and self.needs.has_fuel()
+        if thrusting:
             radians = math.radians(self.angle)
             self.vx -= (math.sin(radians) * self.thrust)/3
             self.vy -= math.cos(radians) * self.thrust
@@ -292,6 +298,8 @@ class Player(Ship):
                 self.needs.use_fuel(1)
                 self.last_fuel = curr_time
         
+        if self.audio is not None:
+            self.audio.set_engine(self, thrusting and self.needs.has_fuel() and self.is_alive)
         if keys[self.controls["shoot"]]:
             self.shoot(bullets)
 

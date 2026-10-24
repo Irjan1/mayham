@@ -10,7 +10,7 @@ Authors: Irjan Evertsen and Emil Olsen-Kristiansen
 import argparse
 import random
 
-import pygame
+import pygame # type: ignore
 
 from config import (
     FPS, FUEL_COLOR, FUEL_RESPAWN_DELAY, FUEL_SIZE, FUEL_WARNING_DURATION,
@@ -20,6 +20,7 @@ from src.arena import (
     ARENA_STYLES, ArenaLayout, choose_fuel_position, create_fixed_arena, generate_arena,
     get_fuel_positions,
 )
+from src.audio import Audio
 from src.game_events import GameEvents
 from src.background import generate_background
 from src.effects import ParticleEffects
@@ -41,7 +42,8 @@ class Game:
                  style: str | None = None) -> None:
         """Initializes pygame, creates game object."""
         pygame.init()
-        self.game_events = GameEvents()
+        self.audio = Audio()
+        self.game_events = GameEvents(audio=self.audio)
         self.fixed_arena = fixed_arena
         self.arena_style = style
         self.next_arena_seed = seed if seed is not None else random.SystemRandom().randrange(2 ** 32)
@@ -104,6 +106,7 @@ class Game:
 
     def game_objects(self, arena: ArenaLayout) -> None:
         """Create players, obstacles and sprite groups from the arena layout."""
+        self.audio.reset_round()
         if hasattr(self, "players"):
             for group in (self.players, self.obstacles, self.hazards, self.bullets,
                           self.fuel_cans, self.explosions):
@@ -117,6 +120,8 @@ class Game:
         self.player2 = Player2(*arena.player2_spawn)
         self.player1.effects = self.effects
         self.player2.effects = self.effects
+        self.player1.audio = self.audio
+        self.player2.audio = self.audio
         self.player1.apply_upgrades(self.upgrade_levels["Player1"])
         self.player2.apply_upgrades(self.upgrade_levels["Player2"])
 
@@ -131,7 +136,7 @@ class Game:
             obstacle = Obstacle(
                 rect.x, rect.y, rect.size, OBSTACLE_COLOR,
                 destructible=rect in arena.destructible_obstacles,
-                effects=self.effects,
+                effects=self.effects, audio=self.audio,
             )
             self.obstacles.add(obstacle)
 
@@ -151,14 +156,16 @@ class Game:
 
     def run(self) -> None:
         """Running of the main game loop."""
-        while self.running:
-            self.clock.tick(FPS)
+        try:
+            while self.running:
+                self.clock.tick(FPS)
 
-            self.handle_events()
-            self.update_game()
-            self.draw()
-
-        pygame.quit()
+                self.handle_events()
+                self.update_game()
+                self.draw()
+        finally:
+            self.audio.close()
+            pygame.quit()
 
     def handle_events(self) -> None:
         """Handling of pygame events."""
@@ -250,6 +257,7 @@ class Game:
             if self.fuel_spawn_position is None:
                 return
             self.fuel_state = 'warning'
+            self.audio.play('fuel_warning')
             # If all sites were occupied, still give a full warning once one opens.
             self.fuel_spawn_at = max(self.fuel_spawn_at, current_time + warning_duration)
         if current_time >= self.fuel_spawn_at:
@@ -292,6 +300,7 @@ class Game:
         if apply_upgrade(self.upgrade_levels[self.upgrade_player], upgrade_id):
             self.selected_upgrade_index = index
             self.upgrade_selected_time = pygame.time.get_ticks()
+            self.audio.play('upgrade')
 
     def draw(self) -> None:
         """Draw all sprites, the GUI and winner."""

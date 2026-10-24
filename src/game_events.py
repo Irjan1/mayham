@@ -9,7 +9,7 @@ Authors: Irjan Evertsen and Emil Olsen-Kristiansen
 
 from __future__ import annotations
 
-import pygame
+import pygame # type: ignore
 
 from config import WALL_DAMAGE
 
@@ -22,10 +22,11 @@ class GameEvents:
         "Player2": 0,
     }
 
-    def __init__(self) -> None:
+    def __init__(self, audio=None) -> None:
         """Create a game event handler, no winner at the start."""
         self.game_winner_player = None
         self.game_winner_time = None
+        self.audio = audio
 
     def bullet_hit_player(self, bullet, player) -> None:
         """Update player health when hit by a bullet."""
@@ -39,13 +40,18 @@ class GameEvents:
         player.needs.health = max(0, player.needs.health - damage)
         if player.needs.health == 0:
             self.player_died(player, owner)
+        elif damage > 0 and self.audio is not None:
+            self.audio.play('rocket_hit', source=player)
 
     def wall_or_obstacle_damage(self, player, killer) -> None:
         """Damage a player after hitting a wall or obstacle."""
+        previous_health = player.needs.health
         player.needs.health = max(0, player.needs.health - WALL_DAMAGE)
 
         if player.needs.health == 0 and player.is_alive:
             self.player_died(player, killer)
+        elif player.needs.health < previous_health and self.audio is not None:
+            self.audio.play('rocket_hit', source=player)
 
     def hazard_hit_player(self, player, opponent) -> None:
         """Spike zones are lethal and award the opponent the round."""
@@ -55,6 +61,8 @@ class GameEvents:
 
     def player_died(self, player, killer) -> None:
         """Mark a player as dead and pass the killer to the winner handler."""
+        if player.is_alive and self.audio is not None:
+            self.audio.play('destruction', source=player)
         player.is_alive = False
         player.kill()
         self.game_winner(killer)
@@ -67,6 +75,8 @@ class GameEvents:
 
         self.game_winner_player = winner
         self.game_winner_time = pygame.time.get_ticks()
+        if self.audio is not None:
+            self.audio.stop_engines()
 
         if winner is None:
             return

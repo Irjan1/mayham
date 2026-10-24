@@ -2,7 +2,7 @@
 
 import random
 
-import pygame
+import pygame # type: ignore
 
 from src import visual_style as style
 

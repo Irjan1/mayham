@@ -1,6 +1,6 @@
 """Static industrial spike art, independent of block textures and damage."""
 
-import pygame
+import pygame # type: ignore
 
 from src import visual_style as style
 

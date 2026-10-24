@@ -1,25 +1,36 @@
 # Mayham
 
-A local two-player rocket combat game built with Python and Pygame.
+**A physics-based rocket combat game built with Python and Pygame.**
 
-Players battle in a small arena using physics-based movement, projectiles, and limited fuel. The game is designed around fast rounds where aggressive movement and fuel management are essential.
+Mayham is a local two-player arena game where players battle using rockets with deliberately awkward, momentum-based movement.
+
+Manage your limited fuel, fight over pickups, and avoid dangerous collisions while trying to destroy your opponent. Each round takes place in a new procedurally generated arena, and the losing player receives upgrades that make subsequent rounds increasingly chaotic.
+
+The goal is simple: **short, tactical rounds that gradually turn into unpredictable space combat.**
 
 ![Mayham gameplay](docs/images/gameplay.png)
 
-## Gameplay
+## Features
 
-- Two-player local multiplayer
-- A new procedural arena each round
-- Open, corridor and scattered room styles with L-shaped and U-shaped cover
-- Steel obstacles, rusty destructible cover and red-tipped spike zones
-- Rocket movement with gravity and thrust
-- Circular player hitboxes and obstacle collision detection
-- Projectiles, health, and damage
-- Limited fuel with randomly spawning fuel pickups
-- Round-based gameplay with persistent scores
-- Between-round upgrades for the losing player, lasting for the game session
+- **Local multiplayer** — Two players compete on the same keyboard.
+- **Physics-based movement** — Gravity, thrust, momentum, and bouncing make controlling your rocket part of the challenge.
+- **Limited fuel** — Conserve fuel and compete for pickups, which are announced before spawning.
+- **Procedural arenas** — Seeded room generation with multiple layouts, obstacles, destructible cover, and lethal hazards.
+- **Weapon upgrades** — Improve your rockets with faster firing, heavier bullets, ricochets, explosive rounds, and more.
+- **Procedural space backgrounds** — Randomized stars, planets, galaxies, nebulae, and other cosmic scenery.
+- **Sci-fi presentation** — Industrial environments, particle effects, and procedurally generated sound effects.
 
-## Controls
+## How to Play
+
+Each player controls a rocket using rotation, thrust, and shooting.
+
+Flying continuously consumes valuable fuel, while losing control can result in damaging collisions. Fuel pickups are announced several seconds before appearing, giving players an opportunity to fight for their location.
+
+After each round, the losing player can choose an upgrade that persists throughout the match.
+
+As upgrades accumulate, the battles become increasingly unpredictable.
+
+### Controls
 
 | Action | Player 1 | Player 2 |
 |---|---|---|
@@ -27,240 +38,105 @@ Players battle in a small arena using physics-based movement, projectiles, and l
 | Rotate right | Right Arrow | D |
 | Thrust | Up Arrow | W |
 | Shoot | Right Shift | Space |
-| Choose upgrade when offered | 1, 2, or 3 | 1, 2, or 3 |
+| Select upgrade | 1, 2, or 3 | 1, 2, or 3 |
+
+The game includes a main menu and an in-game controls screen.
 
 ## Installation
 
-Requires Python 3.13 and Pygame.
+**Requirements:** Python 3.13 and Pygame.
 
-Create and activate a virtual environment:
+Clone the repository:
 
-`python3.13 -m venv .venv`
-
-`source .venv/bin/activate`
-
-Install Pygame:
-
-`python -m pip install pygame`
-
-Run the game:
-
-`python main.py`
-
-The main menu opens first. Use Up/Down and Enter to start Local Multiplayer,
-read Controls, or Quit. Escape returns from Controls. Seed, fixed-arena and style
-options passed at launch apply when multiplayer starts. Starting multiplayer creates
-a fresh match with zero scores and no upgrades. Constructing `Game(...)` directly
-still prepares a round without opening the menu or starting a loop.
-
-## Arena seeds and previews
-
-A starting seed, such as `python main.py --seed 42`, reproduces the match's arena
-sequence. Arena seeds still increment each round: 42, 43, 44, and so on. The terminal
-prints both the arena seed and its style. To reproduce one particular room, use
-both values, for example `python main.py --seed 44 --style scattered`.
-
-Styles rotate through a shuffled bag containing one `open`, one `corridors`, and
-one `scattered` room. Each bag uses every style, and its first style differs from
-the previous bag's last style. Separate random generators handle style rotation,
-upgrade offers and fuel, so choosing an upgrade cannot change later arenas.
-
-Use `python main.py --fixed-arena` to play the original room for debugging.
-
-To bypass style rotation and play one style across rounds,
-use `python main.py --seed 42 --style corridors` (`open` and `scattered` also work).
-The terminal prints both the seed and style. The same seed and style reproduce a
-layout with the current generator version; changing generation rules may change it.
-
-Slate steel obstacles are permanent. Rusty cover breaks after three bullets, with cracks
-showing damage. Each rectangular part of a grouped shape can be destroyed separately.
-Red spike zones kill on contact and award the opponent the round, like a lethal crash.
-Safe routes and fuel placement avoid these zones. Breaking blocks opens new fuel
-locations without changing the original seeded layout or fuel quantities and timing.
-
-Preview arenas without opening a game window:
-
-```sh
-python -m tools.preview_arenas --seed 42 --output arena42.png
-python -m tools.preview_arenas --start 0 --count 12 --output arena_grid.png
-python -m tools.preview_arenas --start 0 --count 6 --style corridors --output corridors.png
+```bash
+git clone https://github.com/Irjan1/mayham.git
+cd mayham
 ```
 
-Previews show room style, obstacle rectangles, spikes, breakable blocks, player
-spawn circles and each arena's seed. A color legend appears below the grid.
-Fuel positions use the ship-reachable grid region, check the full pickup rectangle,
-and leave space around current player positions.
+Create a virtual environment (recommended):
 
-## Fuel warnings and respawning
-
-A round starts with the original 10-second wait for its first fuel can. After
-collection, a fresh 10-second countdown begins; active fuel has no respawn timer.
-Seven seconds before a pickup appears, a pulsing, hollow orange can and corner
-brackets announce its position. The solid can becomes collectible at the deadline.
-The warning is only artwork and never enters the fuel/collision sprite groups.
-
-Timing settings are in `config.py`, in milliseconds: `FUEL_RESPAWN_DELAY` defaults
-to 10000 and `FUEL_WARNING_DURATION` to 7000. The warning duration is clamped to
-0–respawn delay; zero disables advance notice. `FUEL_WARNING_PULSE_HZ` and the
-`FUEL_WARNING_MIN_ALPHA`/`FUEL_WARNING_MAX_ALPHA` settings control the pulse.
-
-The existing reachable, obstacle-free, hazard-free candidates and player-clearance
-check select a location once when the warning starts. Moving onto the announced
-site does not move or cancel it. If no safe site is available, selection retries;
-once a site opens, it receives a full warning before spawning, extending that wait
-if needed. New rounds and arena replacement clear old warnings and fuel state.
-
-`Game.update_fuel(current_time=None)` advances the lifecycle. Its optional timestamp
-makes tests easy to run without waiting. Future AI can read `game.fuel_cans`,
-`game.fuel_state` (`waiting`, `warning`, `active`), `game.fuel_spawn_position` (the
-announced top-left position, otherwise `None`), and `game.fuel_spawn_at` (deadline,
-or `None` while fuel is active). These fields do not depend on drawing code.
-
-## Between-round upgrades
-
-After the winner announcement, the losing player chooses an upgrade with 1, 2, or 3.
-Movement, bullets and fuel stop while the screen is open. The selected card briefly
-highlights, then the next round starts. Draws skip selection. Maxed upgrades are not
-offered; fewer remaining upgrades mean fewer cards, and no eligible cards means the
-next round starts immediately after the announcement.
-
-| Upgrade | Level 1 total | Level 2 total |
-|---|---|---|
-| Reinforced Hull | +20% maximum health | +40% maximum health |
-| Rapid Fire | 15% shorter shooting cooldown | 30% shorter shooting cooldown |
-| Enhanced Thrusters | +15% thrust acceleration | +30% thrust acceleration |
-| Larger Bullets | +25% radius (5 px) | +50% radius (6 px) |
-| Heavy Bullets | +20% damage (24) | +40% damage (28) |
-| Ricochet | 1 surface bounce | 2 surface bounces |
-| Explosive Rounds | 48 px blast radius | 72 px blast radius |
-
-Each upgrade stops at level 2. Each player keeps their own levels for the whole game
-session, even after winning later rounds. New rounds start at the upgraded maximum
-health. Gravity, rotation and fuel consumption stay unchanged. Three distinct cards
-are randomly sampled from the seven upgrades, excluding cards already at level 2.
-
-Stats are calculated from the original values each round, so bonuses do not compound.
-Restarting the application or constructing a new `Game` resets upgrade levels.
-Upgrade definitions, eligibility and stat calculations live in `src/upgrades.py`;
-the selection screen only renders cards. No upgrade rarity or pickup system is added.
-
-## Projectile behavior
-
-New bullets copy their shooter's size, damage, bounce count and explosion radius.
-All four projectile upgrades combine, and existing bullets keep the stats they had
-when fired. The base bullet radius is 4 px and its damage is 20. Shots travel at
-8.8 pixels per frame, up modestly from 8.1; `BULLETSPEED` in `config.py` controls this.
-
-Bullets move in steps of at most one pixel, checking solid obstacles before players.
-Ricochets use circular hitboxes and surface normals. Each contacted surface costs
-one bounce; hitting two arena walls at a corner costs two. Once bounces run out,
-the next surface hit ends the shot. Every impact on a destructible block counts as
-one hit, including a bounce that breaks the block. Heavy Bullets do not change the
-three-hit durability. Spikes remain transparent to projectiles.
-
-An explosive bullet bounces while ricochets remain, then explodes on a terminal
-surface impact or any opposing-player hit. The blast deals the bullet's damage
-once to each opposing player whose circle touches it, replacing direct-hit damage.
-Heavy Bullets also strengthen blasts. The shooter is immune, blasts pass through
-cover, and nearby blocks take no splash damage. A short orange ring marks the blast;
-its 180 ms lifetime affects only drawing, never damage.
-
-Projectile size/damage bonuses are in `src/upgrades.py`. Base radius/damage,
-explosion radii and flash lifetime are in `config.py` for balancing.
-
-## Visual effects
-
-Thrust leaves a layered orange plume with a brief pale engine core; moving bullets leave dim amber trails,
-and solid impacts make small sparks. Breaking rusty blocks scatters brief debris.
-Obstacle edging and highlighted red spikes make the different surfaces easier to read.
-Blue and red ships have finned silhouettes, cockpit detail and a visible rear nozzle,
-while orange fuel canisters have a handle, cap and fuel-drop symbol. Ship and fuel
-surface sizes and collision rules remain unchanged.
-
-`src/effects.py` owns a separate cosmetic random generator and caps the shared pool
-at 240 particles. Particles last at most 0.36 seconds and draw behind gameplay
-sprites. They never enter collision groups or change arena randomness. Effects
-pause during upgrade selection and clear when a new room is created.
-
-## Space backgrounds
-
-Each round gets one static, seeded space background. The cached surface draws
-behind the existing particles, arena sprites and HUD; upgrade selection keeps its
-black background. Background randomness does not affect arena layouts, fuel,
-upgrades or effects. The round seed is XORed with a fixed integer salt before
-creating a private `random.Random` instance.
-
-Everything for backgrounds lives in `src/background.py`, including the preview
-command and visual settings near the top. Initial style weights are empty space
-30, planets 25, galaxies 15, nebulae 20, black holes 5 and nova remnants 5. Weights
-are relative and do not have to total 100. Each scene chooses one theme, with
-variations in size, placement and muted colors. Planets can be rocky, banded or
-dark, with optional rings. Soft cloud stamps form galaxies, nebulae and faded
-remnant shells. Nothing in the background has a collision shape.
-
-Preview backgrounds without opening a game window (outputs are for local review):
-
-```sh
-python -m src.background --start 0 --count 12 --output backgrounds.png
-python -m src.background --start 0 --count 6 --style planet --output planets.png
-python -m src.background --seed 42 --style black_hole --output black_hole.png
+```bash
+python -m venv .venv
 ```
 
-Grids are labelled with seeds and styles. A single seed saves a full-resolution
-example with a caption. `--width` and `--height` override the game's current
-viewport dimensions. A forced style previews its variations without changing the
-weights or gameplay.
+Activate it:
 
-Lower `BRIGHTNESS` or `OPACITY` (both 0–1) to darken every background. Use
-`STAR_DENSITY`/`STAR_BRIGHTNESS`, `STYLE_WEIGHTS`, the color palettes and the named
-size, cloud and ring settings to tune individual features. To add a style, write
-one drawing function taking `(surface, rng)` and register its name in
-`STYLE_DRAWERS`, `STYLE_WEIGHTS` and `STAR_DENSITY`. Use the supplied RNG and keep
-all drawing in this module so generation stays reproducible.
+**Windows:**
+```powershell
+.venv\Scripts\Activate.ps1
+```
 
-## Industrial artwork and menu
+**Linux/macOS:**
+```bash
+source .venv/bin/activate
+```
 
-`src/visual_style.py` groups metal/rust, spike and menu settings separately.
-Change metal shading, wear, grain, panel spacing, rivets, rust coverage, rust colors,
-crack colors or menu typography here. Background settings remain exclusively in
-`src/background.py`; physics and damage values remain in `config.py`.
+Install Pygame and start the game:
 
-Both block types use the same steel renderer in `src/block_art.py`: dim plate
-shading, broad wear, scattered grain, subdued bevels, seams and rivets. Destructible
-cover adds dark red-brown corrosion and pitting, with surviving gray steel visible.
-There are no caution stripes or copper-only panel details. One hit adds branching
-cracks; two hits expose a dark interior beneath a wider fracture. Three hits still
-remove the block and emit the existing debris. Artwork is cached on creation; damage copies the undamaged panel and draws only
-its cracks, without regenerating metal or rust. A private rectangle-derived RNG makes wear repeatable
-without consuming gameplay randomness. The legacy obstacle color argument is
-retained for callers; gameplay block palettes come from `visual_style.py`.
+```bash
+python -m pip install pygame
+python main.py
+```
 
-Spike drawing is independent in `src/hazard_art.py`: steel teeth, shaded faces,
-red tips and a dark mounting rail. Editing block art does not require touching
-spikes. All artwork stays inside the original sprite rectangles. Arena preview
-diagrams keep their simple white/tan block colors for checking generation geometry.
+Use the arrow keys and Enter to navigate the main menu.
 
-`src/menu.py` owns menu selection, help navigation and drawing. It caches one
-background from the existing generator and reads key bindings from the player
-classes. `main.run_application()` finishes menu navigation before constructing a
-fresh `Game` and entering its existing loop. To add a future menu option, add a
-label/action pair to `MENU_OPTIONS` and handle its action in `run_application()`.
-No new game modes or return-to-menu behavior during combat are implemented.
+## Procedural Generation
 
-## Implementation
+Mayham generates a new arena each round using a deterministic seed.
 
-The game uses object-oriented Python, with shared player behavior, separate gameplay entities, and Pygame sprite groups.
+Arenas feature different layouts, including open spaces, corridors, and scattered cover. Generation checks that the rooms remain navigable and that players spawn in valid locations.
 
-Collision detection uses circular player hitboxes against rectangular obstacles. Physics, projectile handling, fuel management, and round logic are implemented in separate components.
+You can reproduce an arena with a specific seed:
 
-## Tests
+```bash
+python main.py --seed 42
+```
 
-With Pygame installed, run the tests from the project root:
+Or select a particular arena style:
 
-`python -m unittest discover -s tests -v`
+```bash
+python main.py --seed 42 --style corridors
+```
 
-Game setup tests use SDLs dummy drivers, so they do not open a game window.
+To play the original fixed arena:
+
+```bash
+python main.py --fixed-arena
+```
+
+The game also includes tools for previewing generated arenas and space backgrounds without starting a match.
+
+## Development
+
+Mayham began as a university project for **INF-1400 at UiT – The Arctic University of Norway**, developed by Irjan Evertsen and Emil Olsen-Kristiansen.
+
+
+After the course, the project was continued as a personal project, adding procedural environments, new gameplay mechanics, visual effects, audio, and automated tests. 
+
+The project is primarily developed for fun, while exploring game physics, procedural generation, algorithms, and software design.
+
+### Testing
+
+The project includes automated tests covering procedural generation, collisions, upgrades, gameplay mechanics, and other systems.
+
+Run the tests with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+### Future Plans
+
+Planned additions include:
+
+- An AI-controlled opponent
+- More varied upgrades and weapon specializations
+- A short single-player campaign
+- Additional arena mechanics and environments
+- A downloadable Windows release
 
 ## Authors
 
-Developed by Irjan Evertsen and Emil Olsen-Kristiansen as a university project for INF-1400 at UiT – The Arctic University of Norway.
+**Irjan Evertsen** and **Emil Olsen-Kristiansen** — Original game.
+
+**Irjan Evertsen** — Continued development and extensions.

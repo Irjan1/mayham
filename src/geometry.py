@@ -2,7 +2,7 @@
 
 import math
 
-import pygame
+import pygame # type: ignore
 
 
 def circle_intersects_rect(center, radius: float, rect: pygame.Rect) -> bool:
