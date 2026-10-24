@@ -1,24 +1,36 @@
 # Mayham
 
-A local two-player rocket combat game built with Python and Pygame.
+**A physics-based rocket combat game built with Python and Pygame.**
 
-Players battle in a small arena using physics-based movement, projectiles, and limited fuel. The game is designed around fast rounds where aggressive movement and fuel management are essential.
+Mayham is a local two-player arena game where players battle using rockets with deliberately awkward, momentum-based movement.
+
+Manage your limited fuel, fight over pickups, and avoid dangerous collisions while trying to destroy your opponent. Each round takes place in a new procedurally generated arena, and the losing player receives upgrades that make subsequent rounds increasingly chaotic.
+
+The goal is simple: **short, tactical rounds that gradually turn into unpredictable space combat.**
 
 ![Mayham gameplay](docs/images/gameplay.png)
 
-## Gameplay
+## Features
 
-- Two-player local multiplayer
-- A new procedural arena each round
-- Open, corridor and scattered room styles with L-shaped and U-shaped cover
-- Red spike zones and tan destructible blocks in some rooms
-- Rocket movement with gravity and thrust
-- Circular player hitboxes and obstacle collision detection
-- Projectiles, health, and damage
-- Limited fuel with randomly spawning fuel pickups
-- Round-based gameplay with persistent scores
+- **Local multiplayer** — Two players compete on the same keyboard.
+- **Physics-based movement** — Gravity, thrust, momentum, and bouncing make controlling your rocket part of the challenge.
+- **Limited fuel** — Conserve fuel and compete for pickups, which are announced before spawning.
+- **Procedural arenas** — Seeded room generation with multiple layouts, obstacles, destructible cover, and lethal hazards.
+- **Weapon upgrades** — Improve your rockets with faster firing, heavier bullets, ricochets, explosive rounds, and more.
+- **Procedural space backgrounds** — Randomized stars, planets, galaxies, nebulae, and other cosmic scenery.
+- **Sci-fi presentation** — Industrial environments, particle effects, and procedurally generated sound effects.
 
-## Controls
+## How to Play
+
+Each player controls a rocket using rotation, thrust, and shooting.
+
+Flying continuously consumes valuable fuel, while losing control can result in damaging collisions. Fuel pickups are announced several seconds before appearing, giving players an opportunity to fight for their location.
+
+After each round, the losing player can choose an upgrade that persists throughout the match.
+
+As upgrades accumulate, the battles become increasingly unpredictable.
+
+### Controls
 
 | Action | Player 1 | Player 2 |
 |---|---|---|
@@ -26,71 +38,105 @@ Players battle in a small arena using physics-based movement, projectiles, and l
 | Rotate right | Right Arrow | D |
 | Thrust | Up Arrow | W |
 | Shoot | Right Shift | Space |
+| Select upgrade | 1, 2, or 3 | 1, 2, or 3 |
+
+The game includes a main menu and an in-game controls screen.
 
 ## Installation
 
-Requires Python 3.13 and Pygame.
+**Requirements:** Python 3.13 and Pygame.
 
-Create and activate a virtual environment:
+Clone the repository:
 
-`python3.13 -m venv .venv`
-
-`source .venv/bin/activate`
-
-Install Pygame:
-
-`python -m pip install pygame`
-
-Run the game:
-
-`python main.py`
-
-## Arena seeds and previews
-
-The terminal prints the arena seed at the start of each round. Reproduce a room
-with `python main.py --seed 42`. Later rounds use 43, 44, and so on. Fuel uses a
-separate random generator, so pickups do not change the arena sequence.
-
-Use `python main.py --fixed-arena` to play the original room for debugging.
-
-Room styles are chosen from the seed by default. To play one style across rounds,
-use `python main.py --seed 42 --style corridors` (`open` and `scattered` also work).
-The terminal prints both the seed and style. The same seed and style reproduce a
-layout with the current generator version; changing generation rules may change it.
-
-White obstacles are permanent. Tan blocks break after three bullets, with cracks
-showing damage. Each rectangular part of a grouped shape can be destroyed separately.
-Red spike zones kill on contact and award the opponent the round, like a lethal crash.
-Safe routes and fuel placement avoid these zones. Breaking blocks opens new fuel
-locations without changing the original seeded layout or fuel quantities and timing.
-
-Preview arenas without opening a game window:
-
-```sh
-python -m tools.preview_arenas --seed 42 --output arena42.png
-python -m tools.preview_arenas --start 0 --count 12 --output arena_grid.png
-python -m tools.preview_arenas --start 0 --count 6 --style corridors --output corridors.png
+```bash
+git clone https://github.com/Irjan1/mayham.git
+cd mayham
 ```
 
-Previews show room style, obstacle rectangles, spikes, breakable blocks, player
-spawn circles and each arena's seed. A color legend appears below the grid.
-Fuel positions use the ship-reachable grid region, check the full pickup rectangle,
-and leave space around current player positions.
+Create a virtual environment (recommended):
 
-## Implementation
+```bash
+python -m venv .venv
+```
 
-The game uses object-oriented Python, with shared player behavior, separate gameplay entities, and Pygame sprite groups.
+Activate it:
 
-Collision detection uses circular player hitboxes against rectangular obstacles. Physics, projectile handling, fuel management, and round logic are implemented in separate components.
+**Windows:**
+```powershell
+.venv\Scripts\Activate.ps1
+```
 
-## Tests
+**Linux/macOS:**
+```bash
+source .venv/bin/activate
+```
 
-With Pygame installed, run the tests from the project root:
+Install Pygame and start the game:
 
-`python -m unittest discover -s tests -v`
+```bash
+python -m pip install pygame
+python main.py
+```
 
-Game setup tests use SDLs dummy drivers, so they do not open a game window.
+Use the arrow keys and Enter to navigate the main menu.
+
+## Procedural Generation
+
+Mayham generates a new arena each round using a deterministic seed.
+
+Arenas feature different layouts, including open spaces, corridors, and scattered cover. Generation checks that the rooms remain navigable and that players spawn in valid locations.
+
+You can reproduce an arena with a specific seed:
+
+```bash
+python main.py --seed 42
+```
+
+Or select a particular arena style:
+
+```bash
+python main.py --seed 42 --style corridors
+```
+
+To play the original fixed arena:
+
+```bash
+python main.py --fixed-arena
+```
+
+The game also includes tools for previewing generated arenas and space backgrounds without starting a match.
+
+## Development
+
+Mayham began as a university project for **INF-1400 at UiT – The Arctic University of Norway**, developed by Irjan Evertsen and Emil Olsen-Kristiansen.
+
+
+After the course, the project was continued as a personal project, adding procedural environments, new gameplay mechanics, visual effects, audio, and automated tests. 
+
+The project is primarily developed for fun, while exploring game physics, procedural generation, algorithms, and software design.
+
+### Testing
+
+The project includes automated tests covering procedural generation, collisions, upgrades, gameplay mechanics, and other systems.
+
+Run the tests with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+### Future Plans
+
+Planned additions include:
+
+- An AI-controlled opponent
+- More varied upgrades and weapon specializations
+- A short single-player campaign
+- Additional arena mechanics and environments
+- A downloadable Windows release
 
 ## Authors
 
-Developed by Irjan Evertsen and Emil Olsen-Kristiansen as a university project for INF-1400 at UiT – The Arctic University of Norway.
+**Irjan Evertsen** and **Emil Olsen-Kristiansen** — Original game.
+
+**Irjan Evertsen** — Continued development and extensions.

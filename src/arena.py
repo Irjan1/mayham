@@ -7,7 +7,7 @@ Authors: Irjan Evertsen
 from dataclasses import dataclass, field
 import random
 
-import pygame
+import pygame # type: ignore
 
 from config import FUEL_SIZE, HEIGHT, OBSTACLE_SIZE, PLAYER_RADIUS, WIDTH
 from src.geometry import circle_intersects_rect
@@ -193,26 +193,45 @@ def validate_arena(arena: ArenaLayout) -> bool:
     )
 
 
-def _make_structure(rng, style) -> list[pygame.Rect]:
+def _rotate_structure(parts, quarter_turns) -> list[pygame.Rect]:
+    """Turn local rectangles clockwise, keeping their shared edges and origin."""
+    for _ in range(quarter_turns):
+        height = max(rect.bottom for rect in parts)
+        parts = [pygame.Rect(height - rect.bottom, rect.x, rect.height, rect.width)
+                 for rect in parts]
+    return parts
+
+
+def _make_structure(rng, style, vertical_lanes=True) -> list[pygame.Rect]:
     """Build a block, L or U using touching, non-overlapping rectangles."""
     if style == "corridors":
         height = rng.randint(280, 380)
-        width = rng.randint(100, 140)
-        thickness = 40
-        shape = rng.choice(("block", "L"))
+        width = rng.randint(112, 140)
+        thickness = rng.randint(24, 32)
+        shape = rng.choice(("block", "L", "U"))
+        if not vertical_lanes:
+            width, height = height, width
     else:
         width = rng.randint(120, 180)
         height = rng.randint(100, 170)
-        thickness = 32
-        shapes = ("block", "block", "L") if style == "open" else ("block", "L", "U")
+        thickness = rng.randint(24, 32)
+        shapes = ("block", "block", "block", "L") if style == "open" else ("block", "block", "L")
         shape = rng.choice(shapes)
     if shape == "block":
         if style == "corridors":
-            return [pygame.Rect(0, 0, thickness, height)]
-        if style == "scattered":
+            size = (thickness, height) if vertical_lanes else (width, thickness)
+            return [pygame.Rect(0, 0, *size)]
+        if style == "open":
+            width, height = rng.randint(80, 140), rng.randint(60, 120)
+        else:
             width, height = rng.randint(60, 100), rng.randint(50, 100)
         return [pygame.Rect(0, 0, width, height)]
 
+    quarter_turns = rng.choice((0, 1, 2, 3))
+    if style == "corridors" and quarter_turns % 2:
+        # Keep the final long axis along its lane for every orientation. Otherwise
+        # sideways structures are rejected much more often in the narrow lanes.
+        width, height = height, width
     parts = [
         pygame.Rect(0, 0, thickness, height),
         pygame.Rect(thickness, height - thickness, width - thickness, thickness),
@@ -221,7 +240,7 @@ def _make_structure(rng, style) -> list[pygame.Rect]:
         # Shorten the bottom so the right-hand side only touches it.
         parts[1].width -= thickness
         parts.append(pygame.Rect(width - thickness, 0, thickness, height))
-    return parts
+    return _rotate_structure(parts, quarter_turns)
 
 
 def generate_arena(seed: int, style: str | None = None) -> ArenaLayout:
@@ -253,9 +272,7 @@ def generate_arena(seed: int, style: str | None = None) -> ArenaLayout:
         obstacles = []
 
         for _ in range(MAX_OBSTACLE_ATTEMPTS):
-            parts = _make_structure(rng, style)
-            if style == "corridors" and not vertical_lanes:
-                parts = [pygame.Rect(rect.y, rect.x, rect.height, rect.width) for rect in parts]
+            parts = _make_structure(rng, style, vertical_lanes)
             bounds = parts[0].unionall(parts[1:])
             if style == "corridors":
                 # Alternating long walls leave openings at opposite ends.

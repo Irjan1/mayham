@@ -13,48 +13,48 @@ in pygame.sprite.Group objects. This enables Group.update and Group.draw later
 Authors: Irjan Evertsen and Emil Olsen-Kristiansen
 """
 
-import pygame
+import pygame # type: ignore
 import math
-from config import WIDTH, HEIGHT, BULLETSPEED, DESTRUCTIBLE_COLOR, DESTRUCTIBLE_HITS, HAZARD_COLOR
+from config import (
+    WIDTH, HEIGHT, BULLETSPEED, BULLET_RADIUS, BULLET_DAMAGE,
+    DESTRUCTIBLE_HITS, EXPLOSION_LIFETIME,
+    FUEL_SIZE, FUEL_COLOR, FUEL_WARNING_MIN_ALPHA, FUEL_WARNING_MAX_ALPHA,
+    FUEL_WARNING_PULSE_HZ,
+)
+from src.block_art import create_block_surface, draw_block_damage
+from src.geometry import circle_rect_contact
+from src.hazard_art import draw_hazard
 
 class Obstacle(pygame.sprite.Sprite):
     """A static rectangular obstacle that ships can collide with."""
 
     def __init__(self, x: int, y: int, size: tuple[int, int], color: tuple[int, int, int],
-                 destructible: bool = False):
-        """Crate the obstacle at the given position with given size and color"""
+                 destructible: bool = False, effects=None, audio=None):
+        """Create an obstacle; keep the old color argument for existing callers."""
         super().__init__()
 
         self.destructible = destructible
+        self.effects = effects
+        self.audio = audio
         self.hits_remaining = DESTRUCTIBLE_HITS if destructible else 0
-        self.image = pygame.Surface(size)
-        self.image.fill(DESTRUCTIBLE_COLOR if destructible else color)
-        self.rect = self.image.get_rect(topleft=(x, y))
+        self.rect = pygame.Rect((x, y), size)
+        self.undamaged_image = create_block_surface(self.rect, destructible)
+        self.image = self.undamaged_image
 
     def take_bullet_hit(self) -> None:
-        """Three hits break a tan block; white obstacles remain permanent."""
+        """Three hits break cover; reinforced obstacles remain permanent."""
         if not self.destructible:
             return
         self.hits_remaining -= 1
         if self.hits_remaining <= 0:
+            if self.audio is not None:
+                self.audio.play('block_break')
+            if self.effects is not None:
+                self.effects.debris(self.rect)
             self.kill()
             return
-        width, height = self.image.get_size()
-        # Cracks accumulate, making the remaining durability visible.
-        for crack in range(DESTRUCTIBLE_HITS - self.hits_remaining):
-            x = width * (crack + 1) // DESTRUCTIBLE_HITS
-            pygame.draw.line(self.image, "black", (x, 0), (width // 2, height), 3)
-
-
-def draw_hazard(surface: pygame.Surface, rect: pygame.Rect) -> None:
-    """Draw the same red spike warning in gameplay and arena previews."""
-    pygame.draw.rect(surface, (90, 15, 25), rect)
-    for x in range(rect.left, rect.right, 16):
-        pygame.draw.polygon(surface, HAZARD_COLOR, [
-            (x, rect.bottom - 1), (min(x + 8, rect.right - 1), rect.top),
-            (min(x + 16, rect.right - 1), rect.bottom - 1),
-        ])
-    pygame.draw.rect(surface, HAZARD_COLOR, rect, 2)
+        self.image = self.undamaged_image.copy()
+        draw_block_damage(self.image, DESTRUCTIBLE_HITS - self.hits_remaining)
 
 
 class Hazard(pygame.sprite.Sprite):
@@ -68,72 +68,187 @@ class Hazard(pygame.sprite.Sprite):
 
 
 class Bullet(pygame.sprite.Sprite):
-    """
-    The bullet class for the game
-    Initializes the bullet and updates it
-    Has collision vs other player, obstacles, and borders
-    """
+    """One projectile with size, damage, ricochets and an optional terminal blast."""
 
-    def __init__(self, x: float, y: float, angle: float, owner: pygame.sprite.Sprite, radius: int = 4):
-        """Create bullet at given position and angle"""
+    def __init__(self, x: float, y: float, angle: float, owner: pygame.sprite.Sprite,
+                 radius: int = BULLET_RADIUS, damage: int = BULLET_DAMAGE,
+                 bounces: int = 0, explosion_radius: int = 0, effects=None, audio=None):
         super().__init__()
-        
-
         self.x = x
         self.y = y
         self.angle = angle
         self.owner = owner
         self.speed = BULLETSPEED
         self.radius = radius
+        self.damage = damage
+        self.bounces_remaining = bounces
+        self.explosion_radius = explosion_radius
+        self.finished = False
+        self.effects = effects
+        self.audio = audio
 
         self.image = pygame.Surface((radius * 2, radius * 2), pygame.SRCALPHA)
-        pygame.draw.circle(self.image, "orange", (self.radius, self.radius), self.radius)
+        color = "gold" if explosion_radius else "orange"
+        pygame.draw.circle(self.image, color, (radius, radius), radius)
+        self.rect = self.image.get_rect(center=(round(x), round(y)))
 
-        self.rect = self.image.get_rect(center=(round(self.x), round(self.y)))
-
-        radians = math.radians(self.angle)
+        radians = math.radians(angle)
         self.vx = -math.sin(radians) * self.speed
         self.vy = -math.cos(radians) * self.speed
 
-    def update(self, players, obstacles: pygame.sprite.Group, game_events) -> None:
-        """Handles bullet movment and collision with obstacles and the player"""
-        self.x += self.vx
-        self.y += self.vy
-
-        self.rect.center = (round(self.x), round(self.y))
-
-
-        # collision
-        for player in players:
-            if player != self.owner and pygame.sprite.collide_circle(self, player):
-                game_events.bullet_hit_player(self, player)  # reduserer needs.health
+    def update(self, players, obstacles, game_events, explosions=None) -> None:
+        """Move in short steps, checking cover before players at each position."""
+        if self.finished or game_events.get_game_winner_time() is not None:
+            return
+        if self.effects is not None and (self.vx or self.vy):
+            self.effects.trail(self)
+        # At most one pixel per step prevents jumping across thin obstacles.
+        # Read velocity each step so the remaining travel follows a ricochet.
+        steps = max(1, math.ceil(math.hypot(self.vx, self.vy)))
+        for step in range(steps + 1):
+            if step:
+                self.x += self.vx / steps
+                self.y += self.vy / steps
+            self.rect.center = (round(self.x), round(self.y))
+            if self.collide_with_surfaces(obstacles):
+                self.finish(players, game_events, explosions)
                 return
+            for player in players:
+                if player is self.owner or not player.is_alive:
+                    continue
+                dx, dy = self.x - player.x, self.y - player.y
+                if dx * dx + dy * dy <= (self.radius + player.radius) ** 2:
+                    self.finish(players, game_events, explosions, player)
+                    return
 
-        ## outside boundaries
-        if self.rect.right < 0 or self.rect.left > WIDTH:
-            self.kill()
+    def collide_with_surfaces(self, obstacles) -> bool:
+        """Resolve contacts; True means a terminal impact rather than a ricochet."""
+        contacts = []
+        if self.x < self.radius:
+            contacts.append(((1, 0), self.radius - self.x))
+        if self.x > WIDTH - self.radius:
+            contacts.append(((-1, 0), self.x - (WIDTH - self.radius)))
+        if self.y < self.radius:
+            contacts.append(((0, 1), self.radius - self.y))
+        if self.y > HEIGHT - self.radius:
+            contacts.append(((0, -1), self.y - (HEIGHT - self.radius)))
+        for normal, depth in contacts:
+            if not self.bounce(normal, depth):
+                return True
+        for obstacle in obstacles:
+            contact = circle_rect_contact((self.x, self.y), self.radius, obstacle.rect)
+            if contact is not None and not self.bounce(*contact, obstacle=obstacle):
+                return True
+        return False
 
-        if self.rect.bottom < 0 or self.rect.top > HEIGHT:
-            self.kill()
-
-        obstacle = pygame.sprite.spritecollideany(self, obstacles)
-        if obstacle is not None:
+    def bounce(self, normal, depth, obstacle=None) -> bool:
+        """Separate and reflect inward motion, or report exhausted ricochets."""
+        nx, ny = normal
+        normal_speed = self.vx * nx + self.vy * ny
+        if self.audio is not None and (normal_speed < 0 or self.bounces_remaining == 0):
+            sound = 'cover_hit' if obstacle is not None and obstacle.destructible else 'metal_hit'
+            self.audio.play(sound)
+        if self.effects is not None and (normal_speed < 0 or self.bounces_remaining == 0):
+            # The separated center minus the radius lies on the contacted surface.
+            position = (self.x + nx * (depth - self.radius),
+                        self.y + ny * (depth - self.radius))
+            self.effects.impact(position, normal)
+        if obstacle is not None and (normal_speed < 0 or self.bounces_remaining == 0):
             obstacle.take_bullet_hit()
+        if self.bounces_remaining == 0:
+            return False
+        # The small gap avoids charging another bounce for round-off overlap.
+        self.x += nx * (depth + 1e-6)
+        self.y += ny * (depth + 1e-6)
+        if normal_speed < 0:
+            self.vx -= 2 * normal_speed * nx
+            self.vy -= 2 * normal_speed * ny
+            self.bounces_remaining -= 1
+        self.rect.center = (round(self.x), round(self.y))
+        return True
+
+    def finish(self, players, game_events, explosions, direct_target=None) -> None:
+        """Damage once at terminal impact; an explosive hit replaces direct damage."""
+        if self.finished:
+            return
+        self.finished = True
+        self.kill()
+        if self.explosion_radius:
+            if explosions is not None:
+                explosions.add(Explosion(self.x, self.y, self.explosion_radius))
+            # Blasts ignore cover and the shooter. Rendering never applies damage.
+            for player in list(players):
+                if player is self.owner:
+                    continue
+                dx, dy = player.x - self.x, player.y - self.y
+                if dx * dx + dy * dy <= (self.explosion_radius + player.radius) ** 2:
+                    game_events.damage_player(player, self.damage, self.owner)
+        elif direct_target is not None:
+            game_events.bullet_hit_player(self, direct_target)
+
+
+class Explosion(pygame.sprite.Sprite):
+    """A short-lived circular impact flash; damage has already been applied."""
+
+    def __init__(self, x, y, radius):
+        super().__init__()
+        self.radius = radius
+        self.created_at = pygame.time.get_ticks()
+        self.image = pygame.Surface((2 * radius, 2 * radius), pygame.SRCALPHA)
+        pygame.draw.circle(self.image, (255, 120, 0, 90), (radius, radius), radius)
+        pygame.draw.circle(self.image, (255, 190, 40), (radius, radius), radius, 3)
+        pygame.draw.circle(self.image, (255, 240, 160), (radius, radius), radius // 2, 2)
+        self.rect = self.image.get_rect(center=(round(x), round(y)))
+
+    def update(self) -> None:
+        if pygame.time.get_ticks() - self.created_at >= EXPLOSION_LIFETIME:
             self.kill()
+
+
+def create_fuel_warning_image():
+    """A hollow can and corner brackets distinguish the hologram from a pickup."""
+    image = pygame.Surface(FUEL_SIZE, pygame.SRCALPHA)
+    width, height = FUEL_SIZE
+    pygame.draw.rect(image, FUEL_COLOR, (4, 8, width - 8, height - 10), 1, border_radius=3)
+    pygame.draw.rect(image, FUEL_COLOR, (7, 2, width // 3, 8), 1, border_radius=2)
+    pygame.draw.rect(image, FUEL_COLOR, (width - 11, 4, 5, 4), 1)
+    for x, dx in ((0, 1), (width - 1, -1)):
+        for y, dy in ((0, 1), (height - 1, -1)):
+            pygame.draw.lines(image, FUEL_COLOR, False,
+                              [(x, y + dy * 4), (x, y), (x + dx * 4, y)])
+    return image
+
+
+def draw_fuel_warning(screen, image, position, current_time):
+    """Pulse a cached, drawing-only surface. It never enters any sprite group."""
+    pulse = (1 + math.sin(math.tau * FUEL_WARNING_PULSE_HZ * current_time / 1000)) / 2
+    image.set_alpha(round(FUEL_WARNING_MIN_ALPHA + pulse *
+                          (FUEL_WARNING_MAX_ALPHA - FUEL_WARNING_MIN_ALPHA)))
+    screen.blit(image, position)
+
 
 class Fuel(pygame.sprite.Sprite):
-    """Class for fuel cans
+    """An orange fuel canister."""
 
-    Spawn in random places at the map and can be picked up by one of the players
-    The Fuel can is represented by a red/orange rectangle
-    """
     def __init__(self, x: int, y: int, size: tuple[int, int], color: tuple[int, int, int]):
-        """Create a fuel can at given position with size and color"""
         super().__init__()
-        self.image = pygame.Surface(size)
-        self.image.fill(color)
+        # Transparent corners change only the drawing, not the pickup rectangle.
+        self.image = pygame.Surface(size, pygame.SRCALPHA)
+        width, height = size
+        dark = (75, 45, 20)
+        pygame.draw.rect(self.image, (255, 205, 95), (6, 2, width // 3, 9), 2, border_radius=2)
+        pygame.draw.rect(self.image, dark, (width - 11, 3, 7, 7), border_radius=1)
+        pygame.draw.rect(self.image, (235, 225, 190), (width - 10, 4, 5, 3))
+        body = pygame.Rect(3, 8, width - 6, height - 10)
+        pygame.draw.rect(self.image, color, body, border_radius=3)
+        pygame.draw.rect(self.image, dark, body, 2, border_radius=3)
+        pygame.draw.line(self.image, (255, 215, 125), (6, 11), (6, height - 6))
+        center_x, center_y = width // 2, height // 2 + 4
+        cream = (255, 245, 205)
+        pygame.draw.polygon(self.image, cream, [(center_x, center_y - 7),
+                            (center_x - 4, center_y), (center_x + 4, center_y)])
+        pygame.draw.circle(self.image, cream, (center_x, center_y), 4)
         self.rect = self.image.get_rect(topleft=(x, y))
-
 
 
 class Ship(pygame.sprite.Sprite):

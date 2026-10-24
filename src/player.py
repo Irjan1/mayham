@@ -8,11 +8,15 @@ Player1 and Player2 inherit from Player and contain their own controls and the c
 """
 
 import math
-import pygame
+import pygame # type: ignore
 
-from config import GRAVITY, STARTING_FUEL, THRUST, WIDTH, HEIGHT, STARTING_HEALTH, FUEL_COOLDOWN, PLAYER_RADIUS
+from config import (
+    BULLET_COOLDOWN, BULLET_DAMAGE, BULLET_RADIUS, FUEL_COOLDOWN, GRAVITY, HEIGHT, PLAYER_RADIUS,
+    STARTING_FUEL, STARTING_HEALTH, THRUST, WIDTH,
+)
 from src.objects import Ship, Obstacle, Bullet
-from src.geometry import circle_intersects_rect
+from src.geometry import circle_intersects_rect, circle_rect_contact
+from src.upgrades import effective_stats
 
 
 class Player(Ship):
@@ -35,12 +39,18 @@ class Player(Ship):
         # Needs holder fuel og health for enhver spiller
         self.needs = Needs()
         self.is_alive = True
+        self.effects = None
+        self.audio = None
 
         ## fuel cooldown makes the fuel drain less time per frame
         self.fuel_cooldown = FUEL_COOLDOWN
         self.last_fuel = 0
 
-        self.bullet_cooldown = 300 # miliseconds
+        self.bullet_radius = BULLET_RADIUS
+        self.bullet_damage = BULLET_DAMAGE
+        self.bullet_bounces = 0
+        self.explosion_radius = 0
+        self.bullet_cooldown = BULLET_COOLDOWN
         self.last_shot = 0
         self.wall_damage_cooldown = 500
         self.last_wall_damage = -self.wall_damage_cooldown
@@ -51,11 +61,49 @@ class Player(Ship):
         self.update_rect()
 
 
+    def apply_upgrades(self, levels: dict[str, int]) -> None:
+        """Set fresh round stats from persistent levels, without compounding."""
+        stats = effective_stats(levels)
+        self.needs.max_health = stats["max_health"]
+        self.needs.health = self.needs.max_health
+        self.bullet_cooldown = stats["bullet_cooldown"]
+        self.thrust = stats["thrust"]
+        self.bullet_radius = stats["bullet_radius"]
+        self.bullet_damage = stats["bullet_damage"]
+        self.bullet_bounces = stats["bullet_bounces"]
+        self.explosion_radius = stats["explosion_radius"]
+
     def create_ship_surface(self) -> pygame.Surface:
-        """Create and return the triangular player image"""
-        surface = pygame.Surface((40,40), pygame.SRCALPHA)
-        pygame.draw.polygon(surface, self.color, [(20,0), (5,35),(35,35)])
-        pygame.draw.rect(surface, "white", (17, 10, 6, 6))
+        """Draw a nose-up rocket on the original 40x40 surface."""
+        surface = pygame.Surface((40, 40), pygame.SRCALPHA)
+        blue = self.color == "blue"
+        body = (65, 120, 245) if blue else (235, 65, 75)
+        shadow = (30, 65, 155) if blue else (145, 30, 45)
+        highlight = (150, 200, 255) if blue else (255, 170, 160)
+        outline = (170, 185, 205)
+
+        # Swept blue fins and wider red fins give the players distinct silhouettes.
+        left_fin = [(15, 21), (6, 29), (6, 33), (17, 28)] if blue else [
+            (14, 19), (4, 29), (7, 32), (17, 28)]
+        right_fin = [(40 - x, y) for x, y in left_fin]
+        for fin in (left_fin, right_fin):
+            pygame.draw.polygon(surface, shadow, fin)
+            pygame.draw.polygon(surface, highlight, fin, 1)
+
+        pygame.draw.rect(surface, (45, 50, 65), (14, 28, 12, 8))
+        pygame.draw.rect(surface, outline, (14, 28, 12, 8), 1)
+        pygame.draw.rect(surface, (235, 150, 60), (17, 32, 6, 3))
+        hull = [(20, 2), (28, 16), (27, 27), (24, 31), (16, 31), (13, 27), (12, 16)]
+        pygame.draw.polygon(surface, body, hull)
+        pygame.draw.polygon(surface, shadow, [(20, 3), (28, 16), (27, 27), (24, 31), (20, 31)])
+        pygame.draw.polygon(surface, outline, hull, 1)
+        pygame.draw.polygon(surface, highlight, [(20, 3), (24, 11), (16, 11)])
+
+        canopy = [(17, 14), (23, 14), (24, 20), (22, 23), (18, 23), (16, 20)]
+        pygame.draw.polygon(surface, (110, 220, 240), canopy)
+        pygame.draw.polygon(surface, (20, 35, 55), canopy, 1)
+        pygame.draw.line(surface, (230, 250, 255), (18, 15), (21, 15))
+        pygame.draw.line(surface, highlight, (17, 26), (23, 26))
         return surface
 
     def collision(self, obstacle) -> bool:
@@ -65,28 +113,66 @@ class Player(Ship):
         """
         return circle_intersects_rect((self.x, self.y), self.radius, obstacle.rect)
 
+    def reflect_velocity(self, normal, bounce_strength=1.0) -> None:
+        """Reflect inward velocity, leaving motion along the surface unchanged."""
+        nx, ny = normal
+        normal_speed = self.vx * nx + self.vy * ny
+        if normal_speed < 0:
+            # A full bounce uses v - 2 * dot(v, normal) * normal.
+            # Smaller strengths reduce only the outgoing normal component.
+            self.vx -= (1 + bounce_strength) * normal_speed * nx
+            self.vy -= (1 + bounce_strength) * normal_speed * ny
+
     def inside_screen(self) -> None:
-        """Keeps the player inside the screen
-        
-        Uses the circular hitbox of the player
-        """
+        """Keep the circular hitbox inside, retaining the existing 1/4 bounce."""
         if self.x - self.radius < 0:
             self.x = self.radius
-            self.vx = -self.vx / 4
+            self.reflect_velocity((1, 0), 0.25)
 
         if self.x + self.radius > WIDTH:
             self.x = WIDTH - self.radius
-            self.vx = -self.vx / 4
+            self.reflect_velocity((-1, 0), 0.25)
 
         if self.y - self.radius < 0:
             self.y = self.radius
-            self.vy = -self.vy / 4
+            self.reflect_velocity((0, 1), 0.25)
 
         if self.y + self.radius > HEIGHT:
             self.y = HEIGHT - self.radius
-            self.vy = -self.vy / 4
+            self.reflect_velocity((0, -1), 0.25)
 
         self.update_rect()
+
+    def resolve_obstacle_collisions(self, obstacles) -> bool:
+        """Separate the circle from solid rectangles and reflect inward motion."""
+        collided = False
+        touched = []
+        # One push can touch another part of an L or U. Recheck nearby parts
+        # a few times, stopping as soon as no overlap remains.
+        for pass_index in range(4 + len(obstacles)):
+            corrected = False
+            for obstacle in obstacles:
+                contact = circle_rect_contact((self.x, self.y), self.radius, obstacle.rect)
+                if contact is None:
+                    continue
+                if obstacle.rect not in touched:
+                    touched.append(obstacle.rect)
+                if pass_index >= 4:
+                    # Deep overlap at a join can alternate between internal faces.
+                    # Escape the combined bounds of touched parts in that rare case.
+                    bounds = touched[0].unionall(touched[1:])
+                    contact = circle_rect_contact((self.x, self.y), self.radius, bounds)
+                normal, depth = contact
+                nx, ny = normal
+                # A tiny gap prevents round-off from reporting the same contact.
+                self.x += nx * (depth + 1e-6)
+                self.y += ny * (depth + 1e-6)
+                self.reflect_velocity(normal)
+                collided = corrected = True
+            if not corrected:
+                break
+        self.update_rect()
+        return collided
 
     def shoot(self, bullets) -> None:
         """Shoots a bullet if the cooldown check passes"""
@@ -96,8 +182,15 @@ class Player(Ship):
             return
 
 
-        bullet = Bullet(self.x, self.y, self.angle, self)
+        bullet = Bullet(
+            self.x, self.y, self.angle, self,
+            radius=self.bullet_radius, damage=self.bullet_damage,
+            bounces=self.bullet_bounces, explosion_radius=self.explosion_radius,
+            effects=self.effects, audio=self.audio,
+        )
         bullets.add(bullet)
+        if self.audio is not None:
+            self.audio.play('fire', source=self)
 
         self.last_shot = time
 
@@ -108,6 +201,8 @@ class Player(Ship):
         ## change this with needs object
         if fuel_touch:
             self.needs.add_fuel(STARTING_FUEL // 2)
+            if self.audio is not None:
+                self.audio.play('pickup', source=self)
 
 
     def update(self, keys, obstacles, players, bullets, fuel_cans, game_events) -> None:
@@ -142,10 +237,8 @@ class Player(Ship):
         self.image = pygame.transform.rotate(self.original_image, self.angle)
         self.update_rect()
 
-        for obstacle in obstacles:
-            if self.collision(obstacle):
-                self.undo_movement(old_x, old_y)
-                self.take_wall_or_obstacle_damage(players, game_events)
+        if self.resolve_obstacle_collisions(obstacles):
+            self.take_wall_or_obstacle_damage(players, game_events)
 
         sprite_collision = pygame.sprite.spritecollide(self, players, False, pygame.sprite.collide_circle)
 
@@ -153,6 +246,9 @@ class Player(Ship):
         for player in sprite_collision:
             if player != self:
                 self.undo_movement(old_x, old_y)
+                self.inside_screen()
+                if self.resolve_obstacle_collisions(obstacles):
+                    self.take_wall_or_obstacle_damage(players, game_events)
                 break
 
     def take_wall_or_obstacle_damage(self, players, game_events) -> None:
@@ -188,10 +284,13 @@ class Player(Ship):
         if keys[self.controls["right"]]:
             self.angle -= self.rotation_speed
 
-        if keys[self.controls["up"]] and self.needs.has_fuel():
+        thrusting = keys[self.controls["up"]] and self.needs.has_fuel()
+        if thrusting:
             radians = math.radians(self.angle)
             self.vx -= (math.sin(radians) * self.thrust)/3
             self.vy -= math.cos(radians) * self.thrust
+            if self.effects is not None:
+                self.effects.exhaust(self)
             
             curr_time = pygame.time.get_ticks()
 
@@ -199,6 +298,8 @@ class Player(Ship):
                 self.needs.use_fuel(1)
                 self.last_fuel = curr_time
         
+        if self.audio is not None:
+            self.audio.set_engine(self, thrusting and self.needs.has_fuel() and self.is_alive)
         if keys[self.controls["shoot"]]:
             self.shoot(bullets)
 
@@ -239,7 +340,8 @@ class Needs:
     def __init__(self) -> None:
         self.max_fuel = STARTING_FUEL
         self.fuel = STARTING_FUEL
-        self.health = STARTING_HEALTH
+        self.max_health = STARTING_HEALTH
+        self.health = self.max_health
 
     def has_fuel(self) -> bool:
         """Returns true if the player still has fuel"""
